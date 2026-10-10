@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>行测刷题 App · Tauri 2.x Android 开发方案</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#24292f;--muted:#57606a;--accent:#2563eb;--border:#d8dee4;--code:#f0f2f4;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}
+.wrap{max-width:900px;margin:0 auto;padding:48px 28px 80px;}
+h1{font-size:30px;line-height:1.3;border-bottom:2px solid var(--border);padding-bottom:16px;}
+h2{font-size:22px;margin-top:44px;padding-left:12px;border-left:4px solid var(--accent);}
+h3{font-size:18px;margin-top:28px;}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14.5px;background:var(--card);}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top;}
+th{background:#eef2f7;}
+tr:nth-child(even) td{background:#fafbfc;}
+pre{background:#1f2430;color:#e6edf3;padding:16px;border-radius:8px;overflow-x:auto;font-size:13.5px;line-height:1.6;}
+code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:90%;font-family:Consolas,monospace;}
+pre code{background:none;padding:0;color:inherit;}
+blockquote{margin:16px 0;padding:10px 18px;background:#eef4ff;border-left:4px solid var(--accent);color:var(--muted);}
+ul,ol{padding-left:26px;}
+hr{border:none;border-top:1px solid var(--border);margin:36px 0;}
+strong{color:#1a1f24;}
+</style></head><body><div class="wrap">
+<h1 id="android">「行测刷题」Android 应用开发方案</h1>
+<blockquote>
+<p>基于 Tauri 2.x · <strong>桌面端先行开发，真机后置验证</strong> · 最终交付 Android 端 · 离线优先<br />
+工作区：<code>D:\project\what-exam</code> · 更新：2026-10-09</p>
+</blockquote>
+<hr />
+<h2 id="1">1. 项目概述</h2>
+<h3 id="11">1.1 目标</h3>
+<p>基于现有 4 份行测题库 PDF（中公教育内部资料），构建一个<strong>纯离线、轻量、单手可刷</strong>的 Android 刷题 App，支持做题、对答案看解析、错题本、数据统计，帮助备考公务员行测。</p>
+<h3 id="12">1.2 开发策略：桌面端先行，真机后置</h3>
+<p><strong>开发期跑在 Windows 桌面窗口（<code>pnpm tauri dev</code>），功能与 UI 全部完成后再接 Android 工具链做真机适配与打包。</strong></p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>桌面开发阶段（M0–M3）</th>
+<th>真机验证阶段（M4）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>运行宿主</td>
+<td>Windows 桌面窗口（WebView2）</td>
+<td>Android 真机（System WebView）</td>
+</tr>
+<tr>
+<td>命令</td>
+<td><code>pnpm tauri dev</code></td>
+<td><code>pnpm tauri android dev/build</code></td>
+</tr>
+<tr>
+<td>需要装的</td>
+<td><strong>已具备 Rust / WebView2 / Node / VS2022</strong>，仅补 pnpm（见 6.1 实测表）</td>
+<td>Android SDK/NDK + JDK17 + 真机或模拟器</td>
+</tr>
+<tr>
+<td>迭代速度</td>
+<td>秒级热重载，DevTools 直连</td>
+<td>需 adb 连接，<code>chrome://inspect</code> 调试</td>
+</tr>
+<tr>
+<td>产出</td>
+<td>可用桌面程序（副产品）</td>
+<td>签名 APK</td>
+</tr>
+</tbody>
+</table>
+<p><strong>为什么这么做：</strong></p>
+<ol>
+<li>安卓工具链（NDK 版本、Gradle、签名）是最容易卡住的一环，放在最后一次性解决，不阻塞功能开发。</li>
+<li>桌面 <code>tauri dev</code> 热重载秒级、Chrome DevTools 直接可用，开发效率显著高于真机。</li>
+<li>前端代码 100% 复用，真机阶段只做<strong>适配与验证</strong>，不做功能重写。</li>
+</ol>
+<p><strong>代价与控制措施（防止真机阶段返工）：</strong> 见 <strong>2.4 桌面优先开发的约束</strong>。</p>
+<h3 id="13">1.3 现有资料盘点（已实际解析验证）</h3>
+<table>
+<thead>
+<tr>
+<th>题本</th>
+<th>题量</th>
+<th>页数</th>
+<th>内容构成</th>
+<th>特殊点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数量关系</td>
+<td>120 题</td>
+<td>15 页</td>
+<td>数字推理 + 数学运算</td>
+<td>大量带分数（如 2½），文本提取后碎裂为多行</td>
+</tr>
+<tr>
+<td>判断推理</td>
+<td>130 题</td>
+<td>35 页</td>
+<td>逻辑判断(1-80) / <strong>图形推理(81-110)</strong> / 类比推理(111-130)</td>
+<td>图形推理题干为矢量图形，<strong>必须图片化</strong></td>
+</tr>
+<tr>
+<td>言语理解与表达</td>
+<td>130 题</td>
+<td>38 页</td>
+<td>逻辑填空 + 片段阅读</td>
+<td>纯文本，解析质量最好</td>
+</tr>
+<tr>
+<td>资料分析</td>
+<td>120 题</td>
+<td>38 页</td>
+<td>20 组材料，每组 5-6 题</td>
+<td>材料含表格/图表，<strong>表格无法纯文本还原，需图片化</strong></td>
+</tr>
+<tr>
+<td><strong>合计</strong></td>
+<td><strong>500 题</strong></td>
+<td>126 页</td>
+<td>四大模块</td>
+<td>答案 PDF 含逐题文字解析</td>
+</tr>
+</tbody>
+</table>
+<p>关键结论：</p>
+<ol>
+<li><strong>500 题 + 全部文字解析</strong>，总文本量约 14 万字，完全可内置进 App。</li>
+<li><strong>两类内容必须以图片呈现</strong>：判断推理的图形推理题（约 30 题）、资料分析的材料表格（约 20 组）。</li>
+<li>PDF 为文本型 PDF（非扫描件），文字可直接提取，解析工作以「自动提取 + 人工校对」为主。</li>
+</ol>
+<hr />
+<h2 id="2">2. 总体方案</h2>
+<h3 id="21">2.1 技术选型</h3>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>选型</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>应用框架</td>
+<td><strong>Tauri 2.x</strong>（用户指定）</td>
+<td>一套前端同时跑桌面与安卓；APK 体积小（壳约 3-5MB）；Rust 侧性能好</td>
+</tr>
+<tr>
+<td><strong>开发宿主</strong></td>
+<td><strong>Windows 桌面窗口</strong>（阶段一）→ Android 真机（阶段二）</td>
+<td>桌面热重载快、DevTools 好用，先把功能做完再上真机</td>
+</tr>
+<tr>
+<td>前端框架</td>
+<td>Vue 3 + TypeScript + Vite</td>
+<td>生态成熟、上手快、移动端性能足够</td>
+</tr>
+<tr>
+<td>UI 组件库</td>
+<td>Vant 4（移动端组件库）</td>
+<td>专为移动 Web 设计，中文文档，自带 ActionSheet/Progress/Toast 等</td>
+</tr>
+<tr>
+<td>状态管理</td>
+<td>Pinia</td>
+<td>Vue 3 官方推荐</td>
+</tr>
+<tr>
+<td>本地存储</td>
+<td><strong>SQLite</strong>（<code>tauri-plugin-sql</code>）+ JSON 资产</td>
+<td>题库为只读 JSON 随包内置；做题记录/错题/统计用 SQLite</td>
+</tr>
+<tr>
+<td>图表</td>
+<td>ECharts（按需引入）或轻量 SVG 自绘</td>
+<td>正确率趋势、模块分布</td>
+</tr>
+<tr>
+<td>数学公式</td>
+<td>自定义渲染（分数用上下结构 CSS）</td>
+<td>数量关系只需分数/上标，不必引 KaTeX（体积大）</td>
+</tr>
+<tr>
+<td>数据管线</td>
+<td>Python（PyMuPDF）</td>
+<td>解析 PDF → JSON + 裁剪图片，一次性脚本</td>
+</tr>
+</tbody>
+</table>
+<h3 id="22">2.2 架构</h3>
+<pre><code>  阶段一(开发)                              阶段二(交付)
+┌──────────────────────────┐   ┌─────────────── Android APK ───────────────┐
+│ Windows 桌面窗口 390×844 │   │  WebView (Android System WebView)         │
+│ (WebView2，模拟手机视口) │   │                                            │
+└────────────┬─────────────┘   └──────────────────────┬───────────────────┘
+             └────────── 同一套 Vue 前端代码 ──────────┘
+                                │
+┌───────────────────────────────┴────────────────────────────────────┐
+│  Vue 3 + Vant 前端                                                  │
+│   页面层：首页/刷题/答案解析/错题/统计                                │
+│   状态层：Pinia (session, settings)                                 │
+└───────────────────────┬────────────────────────────────────────────┘
+                        │ Tauri IPC (invoke)
+┌───────────────────────┴────────────────────────────────────────────┐
+│  Rust Core (tauri v2)  plugins: sql / store / fs                    │
+└───────────────────────┬────────────────────────────────────────────┘
+                        │
+   SQLite: records.db（做题记录/错题/统计）
+   Assets: questions.json（500题内置题库）
+   Assets: /img/graph/*.png（图形推理）  /img/material/*.png（资料图表）
+</code></pre>
+<p><strong>设计原则：</strong></p>
+<ul>
+<li>题库是<strong>只读资产</strong>，随包内置（<code>src-assets</code>），不放 SQLite —— 500 题 JSON 约 1-2MB，一次载入内存分页渲染即可，避免首次启动迁移。</li>
+<li>用户数据（做题记录、错题、收藏、统计）全部进 SQLite，天然支持后续导出/同步。</li>
+<li>Rust 层<strong>尽量零自定义代码</strong>，只靠官方插件 —— 这是"一套代码跑桌面 + 安卓"能成立的前提。</li>
+</ul>
+<h3 id="23">2.3 为什么这套方案成立（选型权衡）</h3>
+<ul>
+<li>vs <strong>原生 Android (Kotlin)</strong>：开发效率高一倍以上，但性能/体验上限略低。本项目 UI 极简单（列表 + 表单 + 图表），WebView 方案绰绰有余。</li>
+<li>vs <strong>Flutter/RN</strong>：若不要求 Tauri，Flutter 也是好选择；但 Tauri 2 已 GA 移动端，Web 栈复用度高，且本项目无重动画需求。</li>
+<li><strong>Tauri Android 的已知短板</strong>（要有预期）：WebView 依赖系统版本（minSdk 24 以上普遍 Chromium 100+，风险可控）；调试需 <code>chrome://inspect</code>；<code>tauri android dev</code> 迭代比桌面慢 —— 这正是选择桌面先行开发的原因。</li>
+</ul>
+<h3 id="24">2.4 桌面优先开发的约束（防返工）</h3>
+<p>桌面开发最大的风险是"写着写着变成桌面软件，上真机要重做布局"。以下为<strong>硬性约束</strong>：</p>
+<p><strong>A. 视口模拟（最关键）</strong></p>
+<ul>
+<li><code>tauri.conf.json</code> 里把开发窗口固定为手机尺寸：
+  <code>jsonc
+  "windows": [{
+    "label": "main",
+    "width": 390, "height": 844,      // iPhone 14 逻辑分辨率，即手机竖屏
+    "resizable": false,
+    "titleBarStyle": "Transparent",   // 尽量贴近手机无标题栏观感
+    "title": "行测刷题"
+  }]</code></li>
+<li>CSS 里不使用任何 <code>@media (min-width: ...)</code> 桌面断点；容器宽度 <code>100%</code>，不写死 <code>px</code> 宽度。</li>
+<li>布局单位用 <code>rem</code>（Vant 默认 375 设计稿）或百分比，<strong>禁止把 hover 态作为唯一交互入口</strong>。</li>
+</ul>
+<p><strong>B. 只用跨平台能力</strong></p>
+<ul>
+<li>只用 <code>@tauri-apps/plugin-sql / plugin-store / plugin-fs / plugin-dialog</code>，<strong>不使用</strong>菜单、托盘、多窗口、窗口尺寸调整、<code>plugin-opener</code> 等桌面倾向 API。</li>
+<li>路径一律走 <code>appDataDir()</code>，不硬编码 Windows 路径。</li>
+<li>键盘/鼠标不作为必需交互：所有操作必须能靠点击完成（别依赖右键、双击、hover 菜单）。</li>
+</ul>
+<p><strong>C. 从第一天就预留移动端差异</strong></p>
+<ul>
+<li>顶部/底部预留安全区变量 <code>env(safe-area-inset-*)</code>，桌面下为 0，真机自动生效。</li>
+<li>输入框（搜索）按软键盘弹出设计，避免被遮挡。</li>
+<li>返回逻辑统一走路由，不依赖硬件返回键（真机阶段再补返回键拦截）。</li>
+<li>只用系统字体族，不指定 Windows 专有字体（微软雅黑在安卓会回退，需确认回退效果可接受）。</li>
+</ul>
+<p><strong>D. 真机阶段验证清单（M4 逐项过）</strong></p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>验证项</th>
+<th>常见问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>布局在真机竖屏无横向滚动、无溢出</td>
+<td>桌面视口宽度对但真机 DPR/字体不同</td>
+</tr>
+<tr>
+<td>2</td>
+<td>图片题全屏缩放、双指手势</td>
+<td>WebView 手势与页面滚动冲突</td>
+</tr>
+<tr>
+<td>3</td>
+<td>分数/特殊符号渲染</td>
+<td>字体回退</td>
+</tr>
+<tr>
+<td>4</td>
+<td>SQLite 首次建库与读写</td>
+<td>安卓沙箱路径</td>
+</tr>
+<tr>
+<td>5</td>
+<td>深色模式、字体大小设置生效</td>
+<td>—</td>
+</tr>
+<tr>
+<td>6</td>
+<td>硬件返回键行为、误触退出</td>
+<td>需监听返回键做二次确认</td>
+</tr>
+<tr>
+<td>7</td>
+<td>冷启动耗时、切题流畅度</td>
+<td>低端机性能</td>
+</tr>
+<tr>
+<td>8</td>
+<td>数据导出/导入（文件读写权限）</td>
+<td>安卓权限与 SAF</td>
+</tr>
+<tr>
+<td>9</td>
+<td>横屏/分屏（建议锁竖屏规避）</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="3">3. 数据方案（本项目成败关键）</h2>
+<h3 id="31-schemaquestionsjson">3.1 题库 Schema（questions.json）</h3>
+<pre><code class="language-jsonc">{
+  &quot;version&quot;: 1,
+  &quot;modules&quot;: [&quot;数量关系&quot;, &quot;判断推理&quot;, &quot;言语理解与表达&quot;, &quot;资料分析&quot;],
+  &quot;questions&quot;: [
+    {
+      &quot;id&quot;: &quot;panduan-081&quot;,                // 模块前缀 + 原题号
+      &quot;module&quot;: &quot;判断推理&quot;,
+      &quot;subType&quot;: &quot;图形推理&quot;,               // 二级题型
+      &quot;stem&quot;: &quot;从所给选项中，选择最合适的一个…&quot;,
+      &quot;stemImage&quot;: &quot;img/graph/panduan-081.png&quot;,  // 可选：题干图
+      &quot;options&quot;: [&quot;A&quot;, &quot;B&quot;, &quot;C&quot;, &quot;D&quot;],    // 图形题 options 为空
+      &quot;optionsImage&quot;: &quot;img/graph/panduan-081-opt.png&quot;, // 可选：选项图
+      &quot;answer&quot;: &quot;B&quot;,
+      &quot;explanation&quot;: &quot;解析全文…&quot;,
+      &quot;materialId&quot;: null,                 // 资料分析题指向所属材料
+      &quot;source&quot;: &quot;中公行测题库&quot;
+    }
+  ],
+  &quot;materials&quot;: [
+    {
+      &quot;id&quot;: &quot;ziliao-m1&quot;,
+      &quot;text&quot;: &quot;2022年2月，“东数西算”工程正式全面启动…&quot;,
+      &quot;image&quot;: &quot;img/material/ziliao-m1.png&quot;  // 表格截图
+    }
+  ]
+}
+</code></pre>
+<h3 id="32-pdf-python">3.2 PDF → 题库解析管线（Python 脚本）</h3>
+<pre><code>PDF ──PyMuPDF──▶ 文本流 ──正则切题──▶ 题目/选项/解析/答案
+ │                                        │
+ └─页面渲染(150dpi)──按题号定位─▶ 裁剪图片 ─┤
+                                          ▼
+                              questions.json + /img/*.png
+                                          ▼
+                              人工抽查校对（每模块抽 20 题）
+</code></pre>
+<p>要点：</p>
+<ol>
+<li><strong>切题规则</strong>：<code>(?m)^\s*(\d{1,3})[\.、]</code> 已验证能完整切出 500 题（题目 PDF 命中率 100%）。</li>
+<li><strong>答案对齐</strong>：答案 PDF 同样按 <code>N.【答案】X。解析：…</code> 切分，与题目按模块+题号 join，已有数据验证可行。</li>
+<li><strong>图片化策略</strong>：</li>
+<li>图形推理（判断推理 81-110 题）：按题号 y 坐标裁剪整题区域为 1 张图。</li>
+<li>资料分析材料表格：每组材料裁剪表格部分（题干文字保留文本，表格转图），或整段材料截图。</li>
+<li>裁剪坐标通过 <code>page.search_for("81.")</code> 拿到题号锚点位置计算。</li>
+<li><strong>数量关系带分数</strong>：如 <code>2.1</code>（2 又 1/2）在提取时碎成多行，需用 PyMuPDF 的 block 坐标重组，存为结构化标记，前端 CSS 渲染上下分数。</li>
+<li><strong>校对工具</strong>：写一个本地 HTML 校对页，左右对照「原 PDF 页截图 vs 解析出的 JSON」，人工过一遍效率最高（约 3-5 小时）。</li>
+</ol>
+<h3 id="33-schemasqlite-recordsdb">3.3 用户数据 Schema（SQLite records.db）</h3>
+<pre><code class="language-sql">-- 做题记录
+CREATE TABLE attempts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  question_id TEXT NOT NULL,
+  chosen TEXT,               -- 用户选择 A/B/C/D
+  is_correct INTEGER NOT NULL,
+  duration_ms INTEGER,       -- 本题用时
+  mode TEXT,                 -- practice / exam / wrong-redo
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+);
+-- 错题本
+CREATE TABLE wrong_book (
+  question_id TEXT PRIMARY KEY,
+  wrong_count INTEGER DEFAULT 1,
+  mastered INTEGER DEFAULT 0,     -- 移出错题本
+  last_wrong_at TEXT,
+  next_review_at TEXT             -- 间隔重复(SM-2)下次复习时间
+);
+-- 收藏
+CREATE TABLE favorites (question_id TEXT PRIMARY KEY, created_at TEXT);
+-- 每日统计
+CREATE TABLE daily_stats (
+  date TEXT PRIMARY KEY,
+  attempted INTEGER, correct INTEGER, duration_ms INTEGER
+);
+-- 设置
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+</code></pre>
+<hr />
+<h2 id="4">4. 功能需求</h2>
+<h3 id="41-p0-mvp">4.1 P0 —— 首版必须（MVP）</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>功能</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F01</td>
+<td>模块首页</td>
+<td>四大模块卡片 + 各模块题量/我的正确率</td>
+</tr>
+<tr>
+<td>F02</td>
+<td>顺序刷题</td>
+<td>按题号顺序做，上一题/下一题，选项点击即判定</td>
+</tr>
+<tr>
+<td>F03</td>
+<td>答案与解析</td>
+<td>提交后即时显示对错 + 答案 + 完整文字解析 + 材料回看</td>
+</tr>
+<tr>
+<td>F04</td>
+<td>图片题支持</td>
+<td>图形推理整题图片展示；资料分析材料表格图片展示（可点开全屏缩放）</td>
+</tr>
+<tr>
+<td>F05</td>
+<td>答题卡</td>
+<td>网格式跳题，已做/未做/标色</td>
+</tr>
+<tr>
+<td>F06</td>
+<td>自动记错</td>
+<td>答错自动进错题本，答对重做后可移出</td>
+</tr>
+<tr>
+<td>F07</td>
+<td>错题本</td>
+<td>列表 + 重做模式 + 一键移除</td>
+</tr>
+<tr>
+<td>F08</td>
+<td>做题统计</td>
+<td>总做题数/正确率/各模块正确率/近 7 天趋势</td>
+</tr>
+<tr>
+<td>F09</td>
+<td>设置</td>
+<td>深色模式、字体大小、是否自动展示解析、清空数据</td>
+</tr>
+<tr>
+<td>F10</td>
+<td>数据备份</td>
+<td>导出/导入 JSON（做题记录+错题+收藏），换机不丢数据</td>
+</tr>
+</tbody>
+</table>
+<h3 id="42-p1">4.2 P1 —— 第二迭代</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>功能</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F11</td>
+<td>随机练习 / 弱项专练</td>
+<td>按错误率高的题型智能组卷</td>
+</tr>
+<tr>
+<td>F12</td>
+<td>模拟考试</td>
+<td>任选模块 + 题量 + 倒计时，交卷后统一出分</td>
+</tr>
+<tr>
+<td>F13</td>
+<td>背题模式</td>
+<td>直接显示答案刷解析（考前突击）</td>
+</tr>
+<tr>
+<td>F14</td>
+<td>收藏 + 搜索</td>
+<td>收藏题目；题干关键字搜索</td>
+</tr>
+<tr>
+<td>F15</td>
+<td>每日目标与打卡</td>
+<td>设定每日 N 题，完成打卡，连续天数记录</td>
+</tr>
+<tr>
+<td>F16</td>
+<td>错题间隔重复</td>
+<td>SM-2 算法安排错题复习（1/2/4/7/15 天）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="43-p2">4.3 P2 —— 远期</h3>
+<ul>
+<li>云同步（可选接入 Supabase/自建后端）</li>
+<li>常识判断、申论模块扩展（导入新 PDF）</li>
+<li>AI 错题讲解（接 LLM API，针对错题生成思路提示）</li>
+<li>iOS 端（Tauri 2 同代码 <code>tauri ios build</code>）</li>
+<li>桌面小组件：今日进度</li>
+</ul>
+<h3 id="44">4.4 非功能需求</h3>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>指标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>离线</td>
+<td>全功能离线可用，无任何网络权限</td>
+</tr>
+<tr>
+<td>性能</td>
+<td>冷启动 &lt; 2s；切题 &lt; 100ms；APK ≤ 30MB（含图片资产）</td>
+</tr>
+<tr>
+<td>兼容</td>
+<td>Android 7.0+（minSdk 24，Tauri 2 默认），targetSdk 34+；开发期宿主为 Windows 桌面（WebView2），UI 按手机竖屏设计</td>
+</tr>
+<tr>
+<td>隐私</td>
+<td>无 SDK、无埋点、数据仅存本地</td>
+</tr>
+<tr>
+<td>电量/体积</td>
+<td>无后台任务；Rust 侧内存占用极低</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="5">5. 页面与交互清单</h2>
+<pre><code>├─ 首页（模块入口 + 今日进度 + 继续上次）
+├─ 题目列表页（按模块，显示已完成状态）
+├─ 刷题页 ★核心
+│   ├─ 顶部：模块名 / 进度 12/130 / 计时
+│   ├─ 中部：材料区（可折叠）→ 题干 → 选项
+│   └─ 底部：答题卡 / 标记 / 收藏 / 上一题·下一题
+├─ 解析页（或刷题页内展开）
+├─ 错题本（列表 → 重做）
+├─ 统计页（数字卡 + ECharts 趋势 + 模块雷达）
+├─ 设置页
+└─ 考试模式页（P1）
+</code></pre>
+<p>交互细节：</p>
+<ul>
+<li>单题作答即判（练习模式）；考试模式整卷交卷后判。</li>
+<li>选项点击后锁定并高亮（绿对红错，附答案高亮），符合考公 App 习惯。</li>
+<li>材料题（资料分析）材料区吸顶可折叠，题目切换时材料不重绘。</li>
+<li>深色模式跟随系统 + 手动切换。</li>
+</ul>
+<hr />
+<h2 id="6">6. 开发环境（本机实测 + 待补）</h2>
+<h3 id="61-2026-10-09">6.1 本机环境核对表（2026-10-09 实测）</h3>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>要求</th>
+<th>本机实测</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Rust</td>
+<td>stable ≥ 1.77</td>
+<td><strong>rustc / cargo 1.98.1</strong>（2026-09-01）</td>
+<td>✅ 已具备，可直接用</td>
+</tr>
+<tr>
+<td>Rust target</td>
+<td>桌面：<code>x86_64-pc-windows-msvc</code></td>
+<td><strong>已安装</strong></td>
+<td>✅ 桌面开发无阻碍</td>
+</tr>
+<tr>
+<td>MSVC 链接器</td>
+<td>VS Build Tools</td>
+<td><strong>Visual Studio Community 2022</strong></td>
+<td>✅ 已具备</td>
+</tr>
+<tr>
+<td>WebView2</td>
+<td>桌面 Tauri 运行依赖</td>
+<td><code>C:\Program Files (x86)\Microsoft\EdgeWebView\Application</code> 存在</td>
+<td>✅ 已具备</td>
+</tr>
+<tr>
+<td>Node</td>
+<td>≥ 18</td>
+<td><strong>v22.22.2</strong></td>
+<td>✅ 已具备</td>
+</tr>
+<tr>
+<td>npm</td>
+<td>≥ 9</td>
+<td><strong>10.9.7</strong></td>
+<td>✅ 已具备</td>
+</tr>
+<tr>
+<td><strong>pnpm</strong></td>
+<td>Tauri 官方脚手架推荐</td>
+<td><strong>未安装</strong></td>
+<td>⬜ 需补，一条命令</td>
+</tr>
+<tr>
+<td>Git</td>
+<td>版本管理</td>
+<td>2.55.0</td>
+<td>✅ 已具备</td>
+</tr>
+<tr>
+<td>JDK</td>
+<td>安卓构建需 <strong>17</strong></td>
+<td>本机 <code>JAVA_HOME=D:\Java\jdk-25.0.4</code>（<strong>JDK 25</strong>）</td>
+<td>⚠️ M4 需处理，见 6.3</td>
+</tr>
+<tr>
+<td>Android SDK/NDK</td>
+<td>安卓构建</td>
+<td>未安装，<code>ANDROID_HOME</code> 为空</td>
+<td>⬜ M4 再装</td>
+</tr>
+<tr>
+<td>Rust 安卓 target</td>
+<td><code>aarch64-linux-android</code> 等</td>
+<td>未安装</td>
+<td>⬜ M4 再装</td>
+</tr>
+</tbody>
+</table>
+<p><strong>结论：桌面开发阶段（M0–M3）零环境阻塞，只需装 pnpm 即可开工。</strong></p>
+<pre><code class="language-bash">npm i -g pnpm          # 唯一需要补装的工具（也可全程用 npm）
+</code></pre>
+<h3 id="62">6.2 阶段一：桌面开发（立即可开始）</h3>
+<pre><code class="language-bash">pnpm create tauri-app what-exam --template vue-ts
+cd what-exam
+pnpm add @tauri-apps/plugin-sql @tauri-apps/plugin-store @tauri-apps/plugin-fs
+pnpm add vant pinia vue-router
+pnpm tauri dev          # ← 主开发命令：桌面窗口 390×844 模拟手机
+</code></pre>
+<p>调试：桌面窗口右键 → 检查元素（<code>Ctrl+Shift+I</code>）；Console 里可直接调用 <code>invoke</code> 验证数据库读写。</p>
+<p>副产品：桌面程序本身可用（大屏看解析也舒服），<code>pnpm tauri build</code> 可出 Windows 安装包，但不是交付目标。</p>
+<h3 id="63-android-m4">6.3 阶段二：Android 真机（M4 再装，不阻塞前期）</h3>
+<ol>
+<li><strong>Android Studio</strong>：Android SDK Platform 34、SDK Build-Tools、<strong>NDK (r25+)</strong>、CMake。</li>
+<li><strong>JDK 17</strong>（关键）：AGP/Gradle 官方推荐 JDK 17。本机当前是 JDK 25，版本过新易与 Gradle 插件不兼容。</li>
+<li>方案 A（推荐）：装 Android Studio 自带的 <strong>jbr（JDK 17/21）</strong>，构建安卓时把 <code>JAVA_HOME</code> 指向它：
+     <code>bash
+     JAVA_HOME="C:/Program Files/Android/Android Studio/jbr"</code></li>
+<li>方案 B：先直接用 JDK 25 试 <code>tauri android build</code>，报错再降级。</li>
+<li>Rust 安卓目标：
+   <code>bash
+   rustup target add aarch64-linux-android armv7-linux-androideabi</code></li>
+<li>环境变量：
+   <code>bash
+   JAVA_HOME="C:/Program Files/Android/Android Studio/jbr"
+   ANDROID_HOME="$LOCALAPPDATA/Android/Sdk"
+   NDK_HOME="$ANDROID_HOME/ndk/26.x.x"</code></li>
+<li>命令：
+   <code>bash
+   pnpm tauri android init          # 生成 gen/android（只需一次）
+   pnpm tauri android dev           # 真机/模拟器调试
+   pnpm tauri android build --apk   # 产出 APK</code></li>
+</ol>
+<h3 id="64-m0">6.4 已踩坑记录（M0 实战，后续复用）</h3>
+<ol>
+<li><strong>包管理器</strong>：本机没有 pnpm，且不便全局安装 —— 全程用 <strong>npm</strong> 即可（<code>npm create tauri-app</code> 支持 <code>--manager npm</code>），命令把文档里的 <code>pnpm</code> 换成 <code>npm</code>。</li>
+<li><strong>schemars 0.8.22 × indexmap 1.9.3 编译失败</strong>（<code>E0107: struct takes 3 generic arguments</code>）：schemars 以 <code>default-features = false</code> 引入 indexmap 1.x，缺 <code>std</code> 导致泛型默认值丢失。修法是在 <code>src-tauri/Cargo.toml</code> 的 <code>[dependencies]</code> 与 <code>[build-dependencies]</code> 都加：
+   <code>toml
+   indexmap = { version = "1.9", features = ["std"] }</code></li>
+<li><strong>rustc 高并发崩溃</strong>（<code>STATUS_STACK_BUFFER_OVERRUN</code> / exit code <code>0xc0000409</code>）：并行度打满时多个 rustc 进程崩溃。修法是限制并发：
+   <code>bash
+   CARGO_BUILD_JOBS=2 npm run tauri dev
+   # 或 cargo check -j 2</code></li>
+<li><strong>Tauri dev 连不上 dev server</strong>：Windows 上 Vite 默认只监听 IPv6 的 <code>::1</code>，而 Tauri 走 IPv4。修法是 <code>vite.config.ts</code> 里 <code>server.host</code> 固定 <code>127.0.0.1</code>，同时 <code>tauri.conf.json</code> 的 <code>devUrl</code> 改为 <code>http://127.0.0.1:1420</code>。</li>
+<li><strong>脚本启动的 dev server 会随终端会话结束被回收</strong>：调试时要把 Vite 和 Tauri 放在同一条命令里启动，否则 Tauri 会一直等 <code>Waiting for your frontend dev server</code>。</li>
+</ol>
+<h3 id="65">6.5 签名与发布</h3>
+<ul>
+<li>生成 keystore：<code>keytool -genkey -v -keystore release.keystore -alias whatexam -keyalg RSA -validity 10000</code></li>
+<li>在 <code>gen/android</code> 的 <code>build.gradle</code> 配置 signingConfig；自用直接装 APK。</li>
+<li>注意：中公资料标注"内部资料 免费交流"，<strong>建议仅自用，不公开分发</strong>。</li>
+</ul>
+<hr />
+<h2 id="7">7. 开发计划（桌面先行版）</h2>
+<blockquote>
+<p>按业余时间估算，全程约 <strong>3 周</strong>（每天 2-4 小时）。M0–M3 全部在桌面窗口完成，M4 才碰安卓。</p>
+</blockquote>
+<h3 id="_1">阶段一 · 桌面开发</h3>
+<h4 id="m0">M0 · 桌面骨架（✅ 已完成）</h4>
+<ul>
+<li>[x] <code>npm create tauri-app</code>（<code>--manager npm --template vue-ts --tauri-version 2</code>）脚手架，<code>npm run tauri dev</code> 跑通</li>
+<li>[x] <code>tauri.conf.json</code> 窗口固定 390×844、禁缩放、标题"行测刷题"</li>
+<li>[x] Vue3 + Vant + vue-router 骨架，<code>records.db</code> 建表（5 张表 + 2 个索引）</li>
+<li>[x] SQLite 插件在桌面可读写（首页会显示建表结果与做题统计）</li>
+</ul>
+<blockquote>
+<p>实战踩坑见 <strong>6.4</strong>（schemars/indexmap 冲突、rustc 并发崩溃、dev server IPv6 绑定问题）。</p>
+</blockquote>
+<h4 id="m1-2-3">M1 · 题库数据管线（2-3 天）★关键路径</h4>
+<ul>
+<li>[x] Python 解析脚本：4 本题目 PDF + 4 本答案 PDF → JSON</li>
+<li>[x] 图形推理题 / 资料分析表格裁剪成 PNG（135 张图，含矢量表格跨页裁图）</li>
+<li>[x] 数量关系带分数清洗（分数/根式选项整题合图兜底）</li>
+<li>[x] HTML 校对页 + 人工抽查校对（review.html，500 题 + 126 张原页对照）</li>
+<li>[x] 产出：<code>public/data/questions.json</code> + <code>public/img/{graph,material}/</code>（500 题全部校验通过）</li>
+</ul>
+<h4 id="m2-3-4">M2 · 刷题核心（3-4 天）</h4>
+<ul>
+<li>[x] 首页、刷题页、答题卡、解析展示（练习/模考、顺序/随机、只重做错题）</li>
+<li>[x] 图片题渲染 + 全屏预览（题干图 / 逐项图 / 四选一合图三形态）</li>
+<li>[x] SQLite 记录写入、自动记错（attempts + daily_stats + wrong_book 联动；浏览器预览降级 localStorage）</li>
+<li>[x] 深色模式、字体大小设置（<code>&lt;html data-theme&gt;</code> + <code>--app-font-size</code>）</li>
+<li>[x] 冒烟测试 <code>tests/*.spec.ts</code> 15 例（vitest + happy-dom，<code>npm run test</code>）</li>
+</ul>
+<h4 id="m3-2">M3 · 错题本与统计（2 天）</h4>
+<ul>
+<li>[x] 错题本列表 / 重做 / 移除 / 标掌握（模块筛选 + 显示已掌握开关）</li>
+<li>[x] 统计页（总览 + 近 14 天 SVG 趋势图 + 各模块正确率 + 弱项题型升序）</li>
+<li>[x] 数据导出 / 导入（Tauri 写 AppData 备份 JSON，浏览器降级下载；导入按题目+时刻去重）</li>
+<li>[x] <strong>桌面端自检</strong>：桌面窗口 390×844 实跑通过——做题 2 题落库、错题本/统计/深色/导出导入全部人工验证（截图见 <code>probe/</code>）</li>
+</ul>
+<blockquote>
+<p>桌面自检方法沉淀：<code>pipeline/shot.py</code>（窗口截图）、<code>pipeline/click.py</code>（模拟点击）、<code>pipeline/cdp.py</code>（WebView2 远程调试求值）。<code>tauri dev</code> 在本机偶发管道错误 os error 231 时，可先起 <code>npm run dev</code> 再直接运行 <code>src-tauri/target/debug/what-exam.exe</code>。</p>
+</blockquote>
+<h3 id="_2">阶段二 · 真机适配与发布</h3>
+<h4 id="m4-android-15-2">M4 · Android 真机（1.5-2 天）</h4>
+<ul>
+<li>[ ] 装 Android Studio / SDK / NDK，<code>JAVA_HOME</code> 切到 JDK 17</li>
+<li>[ ] <code>rustup target add aarch64-linux-android</code> + <code>tauri android init</code></li>
+<li>[ ] <code>tauri android dev</code> 跑起来（预留排障时间，NDK/Gradle/JDK 是主要坑）</li>
+<li>[ ] 按 <strong>2.4-D 真机验证清单 9 项</strong> 逐项过</li>
+<li>[ ] 应用图标、启动页、锁竖屏</li>
+<li>[ ] 签名 APK 并安装到日常手机试用</li>
+</ul>
+<h4 id="m5-p1">M5（可选）· P1 功能</h4>
+<ul>
+<li>[ ] 模拟考试、随机/弱项专练、背题模式、SM-2 复习、每日打卡</li>
+<li>[ ] 完成后同样走一遍真机回归</li>
+</ul>
+<p><strong>里程碑交付物</strong>：M1 结束 = 完整题库数据；M3 结束 = 桌面端可完整刷题；M4 结束 = 签名 APK 装上手机。</p>
+<hr />
+<h2 id="8">8. 风险与对策</h2>
+<table>
+<thead>
+<tr>
+<th>风险</th>
+<th>概率</th>
+<th>对策</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PDF 解析错漏（选项粘连、跨页题目）</td>
+<td>高</td>
+<td>切题后做完整性校验（题号连续、4 选项齐全、答案可 join），异常项进人工队列</td>
+</tr>
+<tr>
+<td>资料分析表格裁剪坐标不准</td>
+<td>中</td>
+<td>用表格标题文字（"表1""表2"）作锚点 + 校对页人工微调</td>
+</tr>
+<tr>
+<td>带分数/特殊符号渲染错乱</td>
+<td>中</td>
+<td>结构化存储 <code>{整数}{分子}{分母}</code>，CSS 渲染，不依赖字体</td>
+</tr>
+<tr>
+<td><strong>桌面开发跑偏成桌面软件，真机要重做布局</strong></td>
+<td><strong>中高（桌面先行的主要新风险）</strong></td>
+<td>严守 2.4 约束：固定 390×844 窗口、移动优先 CSS、禁用桌面独占 API、禁止 hover 作为唯一入口</td>
+</tr>
+<tr>
+<td>桌面与安卓 WebView 行为差异（滚动、手势、字体回退、100vh）</td>
+<td>中</td>
+<td>避免 <code>100vh</code>（用 <code>100dvh</code>/flex）；M4 按 9 项清单逐项验</td>
+</tr>
+<tr>
+<td><strong>JDK 25 与 Gradle/AGP 不兼容</strong></td>
+<td>中</td>
+<td>M4 优先用 Android Studio 自带 jbr（JDK 17/21）并切换 <code>JAVA_HOME</code>；先用 JDK 25 试，报错即降级</td>
+</tr>
+<tr>
+<td>Tauri Android 工具链踩坑（NDK/Gradle 版本）</td>
+<td>中</td>
+<td>后置到 M4 集中排障，不阻塞功能开发；M4 预留整天时间</td>
+</tr>
+<tr>
+<td>安卓文件读写权限（数据导出/导入）</td>
+<td>中</td>
+<td>优先写 appDataDir；导出时再走用户授权保存，必要时引入 <code>plugin-dialog</code></td>
+</tr>
+<tr>
+<td>WebView 低版本兼容</td>
+<td>低</td>
+<td>minSdk 24，主流设备均 Chromium 100+；避免使用过新 CSS 特性</td>
+</tr>
+<tr>
+<td>版权</td>
+<td>—</td>
+<td>中公资料标注"内部资料 免费交流"，<strong>仅自用不分发</strong>；如上架需替换自研题库</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="9">9. 目录结构规划</h2>
+<pre><code>what-exam/
+├─ src/                    # Vue 前端
+│  ├─ views/               # Home / Practice / WrongBook / Stats / Settings
+│  ├─ components/          # QuestionCard / OptionItem / AnswerSheet / MaterialPanel
+│  ├─ stores/              # pinia: session / settings
+│  ├─ assets/questions/    # questions.json（构建期内置）
+│  └─ assets/img/          # graph/*.png  material/*.png
+├─ src-tauri/              # Rust 壳（基本零自定义代码）
+│  ├─ tauri.conf.json      # 窗口 390×844 模拟手机（阶段一）；安卓配置（阶段二）
+│  └─ gen/android          # tauri android init 生成（M4 才有）
+├─ pipeline/               # Python 数据管线（一次性 + 可重跑）
+│  ├─ parse_pdfs.py
+│  ├─ crop_images.py
+│  ├─ validate.py          # 题号/选项/答案完整性校验
+│  └─ review.html          # 人工校对页
+└─ docs/                   # 本方案 + 后续设计文档
+</code></pre></div></body></html>

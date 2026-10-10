@@ -1,0 +1,36 @@
+[package]
+name = "what-exam"
+version = "0.1.0"
+description = "行测刷题 App"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "what_exam_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+# 修复传递依赖冲突：schemars 0.8.x 以 default-features=false 引入 indexmap 1.x，
+# 缺 std 特性会导致 IndexMap 泛型默认值丢失而编译失败，这里强制开启 std。
+indexmap = { version = "1.9", features = ["std"] }
+
+[dependencies]
+indexmap = { version = "1.9", features = ["std"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+tauri-plugin-store = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

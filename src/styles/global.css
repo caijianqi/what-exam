@@ -1,0 +1,279 @@
+/* 移动优先：所有样式按手机竖屏（390×844）编写，不使用桌面断点 */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  --page-bg: #f2f4f8;
+  --card-bg: #ffffff;
+  --text-main: #1b2027;
+  --text-sub: #8a9099;
+  --border-color: #e9ecf2;
+
+  /* 品牌渐变（按钮 / 进度条 / 强调位统一） */
+  --brand-a: #3b82f6;
+  --brand-b: #2563eb;
+  --brand-soft: #eaf2ff;
+
+  /* 圆角 / 阴影 */
+  --r-card: 16px;
+  --r-sm: 10px;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04),
+    0 6px 16px rgba(16, 24, 40, 0.06);
+  --shadow-btn: 0 4px 12px rgba(37, 99, 235, 0.28);
+
+  /* 选项/答题卡底色：深色下单独覆盖 */
+  --cell-none-bg: #ffffff;
+  --mat-bg: #f8fafd;
+  --opt-bg-picked: #eaf2ff;
+  --opt-bg-correct: #e7f8ee;
+  --opt-bg-wrong: #fdecec;
+
+  --ok: #10b981;
+  --warn: #f59e0b;
+  --bad: #ef4444;
+}
+
+/* 深色：由 App.vue 写到 <html data-theme>，Vant 组件由 ConfigProvider 切换 */
+[data-theme="dark"] {
+  --page-bg: #0e1014;
+  --card-bg: #171a20;
+  --text-main: #e7eaee;
+  --text-sub: #8b929c;
+  --border-color: #262b33;
+
+  --brand-a: #5b93ff;
+  --brand-b: #3b74f0;
+  --brand-soft: #1b2740;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-btn: 0 4px 12px rgba(0, 0, 0, 0.4);
+
+  --cell-none-bg: #1d212a;
+  --mat-bg: #14171d;
+  --opt-bg-picked: #1c2b45;
+  --opt-bg-correct: #14331f;
+  --opt-bg-wrong: #351a1d;
+
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --bad: #f0544f;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--page-bg);
+  color: var(--text-main);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  /* 禁用桌面习惯的鼠标文本选择，靠近移动端观感 */
+  user-select: none;
+}
+
+/* 页面根容器：不用 100vh（安卓地址栏会跳动），用 flex + 100% 撑满 */
+.app-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-top: var(--safe-top);
+}
+
+.app-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(50px + var(--safe-bottom));
+}
+
+.page {
+  padding: 12px 12px 16px;
+}
+
+/* ---------- 卡片 ---------- */
+.card {
+  background: var(--card-bg);
+  border-radius: var(--r-card);
+  padding: 14px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow-card);
+  border: 1px solid transparent;
+}
+[data-theme="dark"] .card {
+  border-color: var(--border-color);
+  box-shadow: none;
+}
+
+/* 小卡片：列表项复用（去掉多余内边距） */
+.card.tight {
+  padding: 12px;
+}
+
+/* ---------- 标题 ---------- */
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  margin: 2px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::before {
+  content: "";
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--brand-a), var(--brand-b));
+}
+.section-title .muted {
+  margin-left: auto;
+  font-weight: 400;
+}
+
+.muted {
+  color: var(--text-sub);
+  font-size: 13px;
+}
+
+/* ---------- 统计数字 ---------- */
+.stat-grid {
+  display: flex;
+}
+.stat-grid > div {
+  flex: 1;
+  text-align: center;
+  position: relative;
+}
+.stat-grid > div + div::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12%;
+  bottom: 12%;
+  width: 1px;
+  background: var(--border-color);
+}
+.stat-num {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+}
+.stat-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-sub);
+  margin-top: 2px;
+}
+.stat-num.ok {
+  color: var(--ok);
+}
+.stat-num.bad {
+  color: var(--bad);
+}
+.stat-num.brand {
+  color: var(--brand-b);
+}
+
+/* ---------- 胶囊筛选 ---------- */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip {
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--cell-none-bg);
+  color: var(--text-main);
+  font-size: 13px;
+  line-height: 1.4;
+  transition: all 0.16s ease;
+}
+.chip.on {
+  border-color: var(--brand-a);
+  color: var(--brand-a);
+  background: var(--brand-soft);
+  font-weight: 500;
+}
+.chip:active {
+  transform: scale(0.96);
+}
+
+/* ---------- Vant 组件统一观感 ---------- */
+.van-button {
+  border-radius: var(--r-sm);
+  font-weight: 500;
+}
+.van-button--primary {
+  background: linear-gradient(135deg, var(--brand-a), var(--brand-b));
+  border-color: transparent;
+  box-shadow: var(--shadow-btn);
+}
+.van-button--primary.van-button--plain {
+  background: transparent;
+  box-shadow: none;
+  color: var(--brand-b);
+  border-color: var(--brand-a);
+}
+.van-button:active {
+  transform: scale(0.985);
+}
+
+.van-progress {
+  border-radius: 999px;
+}
+.van-progress__portion {
+  background: linear-gradient(90deg, var(--brand-a), var(--brand-b));
+}
+
+.van-tabbar {
+  border-top: 1px solid var(--border-color);
+  box-shadow: 0 -2px 12px rgba(16, 24, 40, 0.05);
+}
+[data-theme="dark"] .van-tabbar {
+  box-shadow: none;
+}
+.van-tabbar-item--active {
+  font-weight: 600;
+}
+
+.van-nav-bar {
+  box-shadow: none;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* 分数渲染（数量关系带分数）：上下结构，不依赖字体 */
+.frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  line-height: 1.05;
+  margin: 0 2px;
+  font-size: 0.85em;
+}
+.frac-num {
+  border-bottom: 1px solid currentColor;
+  padding: 0 3px;
+}
+.frac-den {
+  padding: 0 3px;
+}
