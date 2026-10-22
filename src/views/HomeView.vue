@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { showToast } from "vant";
 import { MODULES, TOTAL_QUESTIONS } from "../data/modules";
 import { listWrong, moduleProgress, overview, todayStats, usingFallback } from "../db/records";
 import { useSettingsStore } from "../stores/settings";
+import { usePracticeStore } from "../stores/practice";
+import TechIcon from "../components/TechIcon.vue";
 
 const router = useRouter();
 const route = useRoute();
 const settings = useSettingsStore();
+const ps = usePracticeStore();
 
 const todayCount = ref(0);
 const todayCorrect = ref(0);
@@ -15,6 +19,7 @@ const doneByModule = ref<Record<string, number>>({});
 const wrongPending = ref(0);
 const streak = ref(0);
 const dbError = ref("");
+const startingQuick = ref(false);
 
 async function loadStats() {
   try {
@@ -65,11 +70,40 @@ function pctOf(key: string, total: number): number {
 function goPractice(key: string) {
   router.push({ path: "/practice", query: { module: key } });
 }
+
+/** 一键智能速练 10 题（全题库随机抽取 10 题速练） */
+async function startQuickPractice() {
+  if (startingQuick.value) return;
+  startingQuick.value = true;
+  try {
+    const bank = await ps.ensureBank();
+    if (!bank || !bank.questions.length) {
+      showToast("题库暂无题目");
+      return;
+    }
+    const pool = bank.questions.slice();
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const picked = pool.slice(0, 10).map((q) => q.id);
+    await ps.startWithIds(picked, {
+      mode: "practice",
+      title: "智能速练 · 10题",
+      random: false,
+    });
+    router.push("/practice/session");
+  } catch (err) {
+    showToast("启动失败：" + err);
+  } finally {
+    startingQuick.value = false;
+  }
+}
 </script>
 
 <template>
   <div class="page">
-    <!-- 今日进度头图 -->
+    <!-- 今日进度头图 (Cyber Command Hero) -->
     <div class="hero">
       <div class="hero-top">
         <div class="hero-text">
@@ -94,6 +128,26 @@ function goPractice(key: string) {
         <span class="dot">·</span>
         <span>连续 {{ streak }} 天</span>
       </div>
+
+      <!-- 智能速刷快捷通道 -->
+      <div class="hero-actions">
+        <button
+          type="button"
+          class="hero-btn primary"
+          :disabled="startingQuick"
+          @click="startQuickPractice"
+        >
+          <span class="btn-icon">⚡</span>
+          <span>智能速练 10 题</span>
+        </button>
+        <button
+          type="button"
+          class="hero-btn ghost"
+          @click="router.push('/wrong')"
+        >
+          <span>攻克错题 <b v-if="wrongPending">({{ wrongPending }})</b></span>
+        </button>
+      </div>
     </div>
 
     <div class="card">
@@ -111,7 +165,10 @@ function goPractice(key: string) {
         >
           <div class="mod-bar"></div>
           <div class="mod-head">
-            <span class="mod-name">{{ m.name }}</span>
+            <div class="mod-title-wrap">
+              <TechIcon :name="(m.key as any)" size="16" :color="m.color" />
+              <span class="mod-name">{{ m.name }}</span>
+            </div>
             <span class="mod-cnt">{{ doneByModule[m.key] ?? 0 }}/{{ m.total }}</span>
           </div>
           <div class="mod-track">
@@ -160,36 +217,39 @@ function goPractice(key: string) {
 </template>
 
 <style scoped>
-/* ---------- 头图 ---------- */
+/* ---------- 头图 (Cyber Command Hero) ---------- */
 .hero {
   position: relative;
   overflow: hidden;
   border-radius: var(--r-card);
-  padding: 16px 16px 14px;
-  margin-bottom: 12px;
+  padding: 18px 18px 16px;
+  margin-bottom: 14px;
   color: #fff;
-  background: linear-gradient(135deg, #4f8dff 0%, #2f6bff 55%, #1f4ed8 100%);
-  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.28);
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 45%, #0284c7 100%);
+  box-shadow: 0 10px 28px -4px rgba(37, 99, 235, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 .hero::after {
   content: "";
   position: absolute;
   right: -30px;
   top: -50px;
-  width: 150px;
-  height: 150px;
+  width: 160px;
+  height: 160px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.25) 0%, rgba(255, 255, 255, 0) 70%);
+  pointer-events: none;
 }
 .hero::before {
   content: "";
   position: absolute;
-  right: 40px;
-  bottom: -60px;
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+  background-size: 16px 16px;
+  pointer-events: none;
 }
 .hero-top {
   position: relative;
@@ -198,14 +258,16 @@ function goPractice(key: string) {
   justify-content: space-between;
 }
 .hero-title {
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 .hero-sub {
   font-size: 12px;
-  opacity: 0.85;
-  margin-top: 2px;
+  opacity: 0.88;
+  margin-top: 3px;
+  letter-spacing: 0.2px;
 }
 .hero-num {
   text-align: right;
@@ -213,37 +275,93 @@ function goPractice(key: string) {
 }
 .hero-num b {
   display: block;
-  font-size: 30px;
+  font-family: var(--font-mono);
+  font-size: 32px;
   line-height: 1;
-  font-weight: 700;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
 }
 .hero-num span {
   font-size: 11px;
-  opacity: 0.85;
+  opacity: 0.88;
+  letter-spacing: 0.3px;
 }
 .hero-bar {
   position: relative;
-  height: 6px;
+  height: 7px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.28);
-  margin: 14px 0 8px;
+  background: rgba(0, 0, 0, 0.22);
+  margin: 15px 0 10px;
   overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 .hero-bar-fill {
   height: 100%;
   border-radius: 999px;
-  background: #fff;
+  background: linear-gradient(90deg, #38bdf8, #ffffff);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
   transition: width 0.4s ease;
 }
 .hero-foot {
   position: relative;
   font-size: 12px;
-  opacity: 0.92;
+  opacity: 0.95;
+  font-weight: 500;
 }
 .hero-foot .dot {
   margin: 0 6px;
   opacity: 0.6;
+}
+
+/* 智能速练快捷入口 */
+.hero-actions {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.hero-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hero-btn.primary {
+  background: #ffffff;
+  color: #1d4ed8;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.hero-btn.primary:active {
+  transform: scale(0.97);
+  background: #f1f5f9;
+}
+.hero-btn.ghost {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.32);
+  backdrop-filter: blur(8px);
+}
+.hero-btn.ghost:active {
+  transform: scale(0.97);
+  background: rgba(255, 255, 255, 0.25);
+}
+.hero-btn b {
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+.btn-icon {
+  font-size: 14px;
 }
 
 /* ---------- 模块卡 ---------- */
@@ -256,49 +374,60 @@ function goPractice(key: string) {
   position: relative;
   overflow: hidden;
   border-radius: 12px;
-  padding: 12px 12px 10px;
+  padding: 13px 13px 11px;
   background: var(--mat-bg);
   border: 1px solid var(--border-color);
-  transition: transform 0.15s ease;
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.18s ease;
 }
 .mod:active {
-  transform: scale(0.97);
+  transform: scale(0.96);
 }
 .mod-bar {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  width: 3px;
+  width: 3.5px;
   background: var(--mc);
+  box-shadow: 0 0 8px var(--mc);
 }
 .mod-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 4px;
 }
+.mod-title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .mod-name {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--mc);
+  letter-spacing: 0.2px;
 }
 .mod-cnt {
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-sub);
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 .mod-track {
-  height: 4px;
+  height: 4.5px;
   border-radius: 999px;
   background: var(--border-color);
-  margin: 8px 0 6px;
+  margin: 9px 0 7px;
   overflow: hidden;
 }
 .mod-fill {
   height: 100%;
   border-radius: 999px;
   background: var(--mc);
+  box-shadow: 0 0 6px var(--mc);
   transition: width 0.4s ease;
 }
 .mod-desc {

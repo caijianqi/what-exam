@@ -3,60 +3,82 @@
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 
-  --page-bg: #f2f4f8;
+  /* 基础画布 & 材质 */
+  --page-bg: #f4f6fa;
   --card-bg: #ffffff;
-  --text-main: #1b2027;
-  --text-sub: #8a9099;
-  --border-color: #e9ecf2;
+  --text-main: #0f172a;
+  --text-sub: #64748b;
+  --border-color: #e2e8f0;
 
-  /* 品牌渐变（按钮 / 进度条 / 强调位统一） */
-  --brand-a: #3b82f6;
-  --brand-b: #2563eb;
-  --brand-soft: #eaf2ff;
+  /* 品牌高能钛蓝渐变（未来科技脉冲） */
+  --brand-a: #2563eb;
+  --brand-b: #0284c7;
+  --brand-soft: #eff6ff;
+  --brand-glow: rgba(37, 99, 235, 0.22);
 
-  /* 圆角 / 阴影 */
+  /* 圆角 / 阴影 / 发光 */
   --r-card: 16px;
   --r-sm: 10px;
-  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04),
-    0 6px 16px rgba(16, 24, 40, 0.06);
-  --shadow-btn: 0 4px 12px rgba(37, 99, 235, 0.28);
+  --shadow-card: 0 2px 8px -2px rgba(15, 23, 42, 0.05),
+    0 10px 24px -4px rgba(15, 23, 42, 0.06);
+  --shadow-btn: 0 4px 16px rgba(37, 99, 235, 0.32);
+  --shadow-glow-cyan: 0 0 16px rgba(2, 132, 199, 0.28);
 
   /* 选项/答题卡底色：深色下单独覆盖 */
   --cell-none-bg: #ffffff;
-  --mat-bg: #f8fafd;
-  --opt-bg-picked: #eaf2ff;
-  --opt-bg-correct: #e7f8ee;
-  --opt-bg-wrong: #fdecec;
+  --mat-bg: #f8fafc;
+  --opt-bg-picked: #eff6ff;
+  --opt-bg-correct: #ecfdf5;
+  --opt-bg-wrong: #fff1f2;
 
+  /* 科技态指示色 */
   --ok: #10b981;
+  --ok-glow: rgba(16, 185, 129, 0.25);
   --warn: #f59e0b;
-  --bad: #ef4444;
+  --bad: #f43f5e;
+  --bad-glow: rgba(244, 63, 94, 0.25);
+
+  --chart-bar: #e2e8f0;
+  --chart-bar-ok: var(--ok);
+
+  /* 等宽仪表数字字体 */
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono",
+    "Segoe UI Mono", Menlo, Consolas, monospace;
 }
 
-/* 深色：由 App.vue 写到 <html data-theme>，Vant 组件由 ConfigProvider 切换 */
+/* 深色模式：深空星轨座舱（Deep Cyber Slate & Neon Pulses） */
 [data-theme="dark"] {
-  --page-bg: #0e1014;
-  --card-bg: #171a20;
-  --text-main: #e7eaee;
-  --text-sub: #8b929c;
-  --border-color: #262b33;
+  --page-bg: #090c13;
+  --card-bg: #111622;
+  --text-main: #f1f5f9;
+  --text-sub: #8590a3;
+  --border-color: rgba(255, 255, 255, 0.09);
 
-  --brand-a: #5b93ff;
-  --brand-b: #3b74f0;
-  --brand-soft: #1b2740;
+  /* 极光青与电光蓝渐变 */
+  --brand-a: #38bdf8;
+  --brand-b: #2563eb;
+  --brand-soft: rgba(56, 189, 248, 0.12);
+  --brand-glow: rgba(56, 189, 248, 0.35);
 
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-btn: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-btn: 0 4px 20px rgba(37, 99, 235, 0.45);
+  --shadow-glow-cyan: 0 0 18px rgba(56, 189, 248, 0.35);
 
-  --cell-none-bg: #1d212a;
-  --mat-bg: #14171d;
-  --opt-bg-picked: #1c2b45;
-  --opt-bg-correct: #14331f;
-  --opt-bg-wrong: #351a1d;
+  --cell-none-bg: #151a28;
+  --mat-bg: #0d121c;
+  --opt-bg-picked: rgba(56, 189, 248, 0.14);
+  --opt-bg-correct: rgba(0, 245, 155, 0.14);
+  --opt-bg-wrong: rgba(255, 75, 110, 0.14);
 
-  --ok: #22c55e;
-  --warn: #f59e0b;
-  --bad: #f0544f;
+  --ok: #00f59b;
+  --ok-glow: rgba(0, 245, 155, 0.3);
+  --warn: #fbbf24;
+  --bad: #ff4b6e;
+  --bad-glow: rgba(255, 75, 110, 0.3);
+
+  --chart-bar: rgba(255, 255, 255, 0.12);
+  --chart-bar-ok: var(--ok);
 }
 
 * {
@@ -76,11 +98,11 @@ body {
   background: var(--page-bg);
   color: var(--text-main);
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
-    "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+    "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
   font-size: 15px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
-  /* 禁用桌面习惯的鼠标文本选择，靠近移动端观感 */
+  /* 禁用桌面习惯的鼠标文本选择，靠近移动端原生观感 */
   user-select: none;
 }
 
@@ -90,6 +112,7 @@ body {
   flex-direction: column;
   height: 100%;
   padding-top: var(--safe-top);
+  background: var(--page-bg);
 }
 
 .app-body {
@@ -103,18 +126,23 @@ body {
   padding: 12px 12px 16px;
 }
 
-/* ---------- 卡片 ---------- */
+/* ---------- 科技卡片 (Nano-Crafted Card) ---------- */
 .card {
+  position: relative;
   background: var(--card-bg);
   border-radius: var(--r-card);
-  padding: 14px;
+  padding: 15px;
   margin-bottom: 12px;
   box-shadow: var(--shadow-card);
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
+
 [data-theme="dark"] .card {
   border-color: var(--border-color);
-  box-shadow: none;
+  background: linear-gradient(180deg, #131927 0%, #0f1420 100%);
 }
 
 /* 小卡片：列表项复用（去掉多余内边距） */
@@ -122,11 +150,11 @@ body {
   padding: 12px;
 }
 
-/* ---------- 标题 ---------- */
+/* ---------- 标题与数据微标 ---------- */
 .section-title {
   font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.3px;
   margin: 2px 0 12px;
   display: flex;
   align-items: center;
@@ -134,14 +162,17 @@ body {
 }
 .section-title::before {
   content: "";
-  width: 3px;
+  width: 3.5px;
   height: 14px;
   border-radius: 2px;
   background: linear-gradient(180deg, var(--brand-a), var(--brand-b));
+  box-shadow: 0 0 8px var(--brand-glow);
 }
 .section-title .muted {
   margin-left: auto;
   font-weight: 400;
+  font-size: 12px;
+  letter-spacing: 0.2px;
 }
 
 .muted {
@@ -149,7 +180,7 @@ body {
   font-size: 13px;
 }
 
-/* ---------- 统计数字 ---------- */
+/* ---------- 统计数字 (HUD Telemetry Grid) ---------- */
 .stat-grid {
   display: flex;
 }
@@ -162,102 +193,125 @@ body {
   content: "";
   position: absolute;
   left: 0;
-  top: 12%;
-  bottom: 12%;
+  top: 15%;
+  bottom: 15%;
   width: 1px;
   background: var(--border-color);
+  opacity: 0.8;
 }
 .stat-num {
   display: block;
-  font-size: 20px;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 21px;
+  font-weight: 800;
   line-height: 1.25;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.2px;
+  letter-spacing: -0.5px;
 }
 .stat-label {
   display: block;
   font-size: 11px;
+  font-weight: 500;
   color: var(--text-sub);
-  margin-top: 2px;
+  margin-top: 3px;
+  letter-spacing: 0.3px;
 }
 .stat-num.ok {
   color: var(--ok);
+  text-shadow: 0 0 10px var(--ok-glow);
 }
 .stat-num.bad {
   color: var(--bad);
+  text-shadow: 0 0 10px var(--bad-glow);
 }
 .stat-num.brand {
-  color: var(--brand-b);
+  color: var(--brand-a);
+  text-shadow: 0 0 10px var(--brand-glow);
 }
 
-/* ---------- 胶囊筛选 ---------- */
+/* ---------- 胶囊筛选 (Cyber Filter Chips) ---------- */
 .chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 .chip {
-  padding: 6px 13px;
+  padding: 6px 14px;
   border-radius: 999px;
   border: 1px solid var(--border-color);
   background: var(--cell-none-bg);
   color: var(--text-main);
   font-size: 13px;
   line-height: 1.4;
-  transition: all 0.16s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .chip.on {
   border-color: var(--brand-a);
   color: var(--brand-a);
   background: var(--brand-soft);
-  font-weight: 500;
+  font-weight: 600;
+  box-shadow: 0 0 12px var(--brand-glow);
 }
 .chip:active {
-  transform: scale(0.96);
+  transform: scale(0.95);
 }
 
-/* ---------- Vant 组件统一观感 ---------- */
+/* ---------- Vant 组件科技美化 ---------- */
 .van-button {
   border-radius: var(--r-sm);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .van-button--primary {
-  background: linear-gradient(135deg, var(--brand-a), var(--brand-b));
+  background: linear-gradient(135deg, var(--brand-a) 0%, var(--brand-b) 100%);
   border-color: transparent;
   box-shadow: var(--shadow-btn);
 }
 .van-button--primary.van-button--plain {
   background: transparent;
   box-shadow: none;
-  color: var(--brand-b);
+  color: var(--brand-a);
   border-color: var(--brand-a);
 }
 .van-button:active {
-  transform: scale(0.985);
+  transform: scale(0.975);
 }
 
 .van-progress {
   border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
 }
 .van-progress__portion {
   background: linear-gradient(90deg, var(--brand-a), var(--brand-b));
+  box-shadow: 0 0 8px var(--brand-glow);
 }
 
 .van-tabbar {
   border-top: 1px solid var(--border-color);
-  box-shadow: 0 -2px 12px rgba(16, 24, 40, 0.05);
+  background: var(--card-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 -2px 14px rgba(15, 23, 42, 0.05);
 }
 [data-theme="dark"] .van-tabbar {
-  box-shadow: none;
+  background: rgba(17, 22, 34, 0.88);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
 }
 .van-tabbar-item--active {
-  font-weight: 600;
+  font-weight: 700;
+  color: var(--brand-a);
 }
 
 .van-nav-bar {
+  background: var(--card-bg);
   box-shadow: none;
   border-bottom: 1px solid var(--border-color);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+[data-theme="dark"] .van-nav-bar {
+  background: rgba(17, 22, 34, 0.88);
 }
 
 /* 分数渲染（数量关系带分数）：上下结构，不依赖字体 */

@@ -243,6 +243,7 @@ export const usePracticeStore = defineStore("practice", () => {
     subType,
     title,
     submitted,
+    questionShownAt,
     materialOpen,
     current,
     currentAnswer,

@@ -6,8 +6,12 @@
  *   1. 文字选项（多数题）
  *   2. 图形选项：四个选项合成一张图（optionImage），A/B/C/D 退化成一排点选按钮
  *   3. 逐项图片：每个选项自带一张 PNG
+ *
+ * 增强交互：
+ *   - 排除法：长按选项或点击右侧划除按钮，可划除干扰项（避免误选）
+ *   - 点击已排除项可一键恢复
  */
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { showImagePreview } from "vant";
 import type { Question, QuestionOption } from "../data/bank";
 import { assetUrl } from "../data/bank";
@@ -26,6 +30,60 @@ const emit = defineEmits<{ (e: "choose", key: string): void }>();
 const optionImageUrl = computed(() =>
   props.question.optionImage ? assetUrl(props.question.optionImage) : ""
 );
+
+// 排除项集合（切题自动重置）
+const eliminated = ref<Set<string>>(new Set());
+
+watch(
+  () => props.question.id,
+  () => {
+    eliminated.value.clear();
+  }
+);
+
+function toggleEliminate(key: string, e?: Event) {
+  if (e) e.stopPropagation();
+  if (props.disabled || props.judged) return;
+  if (eliminated.value.has(key)) {
+    eliminated.value.delete(key);
+  } else {
+    eliminated.value.add(key);
+  }
+}
+
+// 长按排除手势
+let pressTimer: number | null = null;
+let isLongPress = false;
+
+function onTouchStart(key: string) {
+  if (props.disabled || props.judged) return;
+  isLongPress = false;
+  pressTimer = window.setTimeout(() => {
+    isLongPress = true;
+    toggleEliminate(key);
+  }, 420);
+}
+
+function onTouchEnd() {
+  if (pressTimer) {
+    clearTimeout(pressTimer);
+    pressTimer = null;
+  }
+}
+
+function onOptionClick(key: string) {
+  if (isLongPress) {
+    isLongPress = false;
+    return;
+  }
+  if (props.disabled) return;
+  if (eliminated.value.has(key)) {
+    // 点击已被排除的选项 → 自动解除排除
+    toggleEliminate(key);
+    return;
+  }
+  emit("choose", key);
+}
 
 function clsOf(o: QuestionOption): Record<string, boolean> {
   const q = props.question;
@@ -59,29 +117,33 @@ function previewOptions() {
         alt="选项图"
         @click="previewOptions"
       />
-      <div class="img-tip">点击图片可放大</div>
+      <div class="img-tip">点击图片可放大 · 长按字母可排除</div>
       <div class="graphic-keys">
         <button
           v-for="o in question.options"
           :key="o.key"
           class="gkey"
-          :class="clsOf(o)"
+          :class="[clsOf(o), { eliminated: eliminated.has(o.key) }]"
           :disabled="disabled"
-          @click="emit('choose', o.key)"
+          @touchstart.passive="onTouchStart(o.key)"
+          @touchend.passive="onTouchEnd"
+          @click="onOptionClick(o.key)"
         >
           {{ o.key }}
         </button>
       </div>
     </div>
 
-    <!-- 形态 1/3：v-for 必须包在 template 里，不能和 v-else 同元素（v-if 优先级更高，o 取不到） -->
+    <!-- 形态 1/3：文字或逐项图 -->
     <template v-else>
       <div
         v-for="o in question.options"
         :key="o.key"
         class="opt"
-        :class="clsOf(o)"
-        @click="!disabled && emit('choose', o.key)"
+        :class="[clsOf(o), { eliminated: eliminated.has(o.key) }]"
+        @touchstart.passive="onTouchStart(o.key)"
+        @touchend.passive="onTouchEnd"
+        @click="onOptionClick(o.key)"
       >
         <span class="opt-key">{{ o.key }}</span>
         <span v-if="o.text" class="opt-text" v-html="richText(o.text)"></span>
@@ -92,6 +154,18 @@ function previewOptions() {
           alt="选项图"
           @click.stop="preview(assetUrl(o.image))"
         />
+
+        <!-- 快捷排除划线按钮（仅未判分未锁定时可用） -->
+        <button
+          v-if="!disabled && !judged"
+          type="button"
+          class="opt-del"
+          :class="{ on: eliminated.has(o.key) }"
+          :title="eliminated.has(o.key) ? '取消排除' : '排除该项'"
+          @click.stop="toggleEliminate(o.key, $event)"
+        >
+          <span class="del-slash"></span>
+        </button>
       </div>
     </template>
   </div>
@@ -108,15 +182,18 @@ function previewOptions() {
 .opt {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px 12px;
+  gap: 12px;
+  padding: 13px 14px;
   border: 1px solid var(--border-color);
   border-radius: 12px;
   background: var(--card-bg);
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  transition: background 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
 }
 .opt:active {
-  transform: scale(0.99);
+  transform: scale(0.985);
 }
 
 .opt-text {
@@ -128,16 +205,18 @@ function previewOptions() {
 
 .opt-key {
   flex: none;
-  width: 24px;
-  height: 24px;
-  line-height: 22px;
+  width: 25px;
+  height: 25px;
+  line-height: 23px;
   text-align: center;
   border-radius: 50%;
   border: 1px solid var(--border-color);
   background: var(--mat-bg);
+  font-family: var(--font-mono);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-sub);
+  transition: all 0.2s ease;
 }
 
 .opt-inline-img {
@@ -150,10 +229,12 @@ function previewOptions() {
 .opt.picked {
   border-color: var(--brand-a);
   background: var(--opt-bg-picked);
+  box-shadow: 0 0 14px var(--brand-glow);
 }
 .opt.picked .opt-key {
   border-color: var(--brand-a);
   background: linear-gradient(135deg, var(--brand-a), var(--brand-b));
+  box-shadow: 0 0 8px var(--brand-glow);
   color: #fff;
 }
 
@@ -161,23 +242,102 @@ function previewOptions() {
 .opt.correct {
   border-color: var(--ok);
   background: var(--opt-bg-correct);
+  box-shadow: 0 0 14px var(--ok-glow);
 }
 .opt.correct .opt-key {
   border-color: var(--ok);
   background: var(--ok);
+  box-shadow: 0 0 8px var(--ok-glow);
   color: #fff;
 }
 .opt.wrong {
   border-color: var(--bad);
   background: var(--opt-bg-wrong);
+  box-shadow: 0 0 14px var(--bad-glow);
 }
 .opt.wrong .opt-key {
   border-color: var(--bad);
   background: var(--bad);
+  box-shadow: 0 0 8px var(--bad-glow);
   color: #fff;
 }
 
-/* 形态 2 */
+/* 动效：答对微跃发光，答错震动警示 */
+@keyframes correctPulse {
+  0% { transform: scale(0.98); }
+  50% { transform: scale(1.01); }
+  100% { transform: scale(1); }
+}
+.opt.correct {
+  animation: correctPulse 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes wrongShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-3px); }
+  40%, 80% { transform: translateX(3px); }
+}
+.opt.wrong {
+  animation: wrongShake 0.32s ease;
+}
+
+/* 排除法态：虚线、淡化、划线 */
+.opt.eliminated {
+  opacity: 0.42;
+  background: var(--mat-bg);
+  border-style: dashed;
+  border-color: var(--border-color);
+  box-shadow: none;
+}
+.opt.eliminated .opt-text {
+  text-decoration: line-through;
+  color: var(--text-sub);
+}
+.opt.eliminated .opt-key {
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+
+/* 快捷排除按钮 */
+.opt-del {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-sub);
+  opacity: 0.35;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  margin-left: auto;
+  padding: 0;
+}
+.opt:hover .opt-del,
+.opt-del.on {
+  opacity: 1;
+}
+.opt-del.on {
+  background: rgba(244, 63, 94, 0.12);
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.del-slash {
+  width: 13px;
+  height: 1.5px;
+  background: currentColor;
+  transform: rotate(-45deg);
+  border-radius: 1px;
+}
+
+.gkey.eliminated {
+  opacity: 0.35;
+  text-decoration: line-through;
+  border-style: dashed;
+}
 .opt-image-wrap {
   border: 1px solid var(--border-color);
   border-radius: 12px;

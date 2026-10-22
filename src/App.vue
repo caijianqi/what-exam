@@ -2,6 +2,7 @@
 import { computed, watchEffect } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useSettingsStore } from "./stores/settings";
+import TechIcon from "./components/TechIcon.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -39,11 +40,36 @@ function onChange(path: string) {
         :safe-area-inset-bottom="true"
         @change="onChange"
       >
-        <van-tabbar-item name="/" icon="home-o">首页</van-tabbar-item>
-        <van-tabbar-item name="/practice" icon="edit">刷题</van-tabbar-item>
-        <van-tabbar-item name="/wrong" icon="warning-o">错题</van-tabbar-item>
-        <van-tabbar-item name="/stats" icon="chart-trending-o">统计</van-tabbar-item>
-        <van-tabbar-item name="/settings" icon="setting-o">设置</van-tabbar-item>
+        <van-tabbar-item name="/">
+          <span>首页</span>
+          <template #icon="props">
+            <TechIcon name="home" :active="props.active" />
+          </template>
+        </van-tabbar-item>
+        <van-tabbar-item name="/practice">
+          <span>刷题</span>
+          <template #icon="props">
+            <TechIcon name="practice" :active="props.active" />
+          </template>
+        </van-tabbar-item>
+        <van-tabbar-item name="/wrong">
+          <span>错题</span>
+          <template #icon="props">
+            <TechIcon name="wrong" :active="props.active" />
+          </template>
+        </van-tabbar-item>
+        <van-tabbar-item name="/stats">
+          <span>统计</span>
+          <template #icon="props">
+            <TechIcon name="stats" :active="props.active" />
+          </template>
+        </van-tabbar-item>
+        <van-tabbar-item name="/settings">
+          <span>设置</span>
+          <template #icon="props">
+            <TechIcon name="settings" :active="props.active" />
+          </template>
+        </van-tabbar-item>
       </van-tabbar>
     </div>
   </van-config-provider>

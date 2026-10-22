@@ -5,7 +5,7 @@
  * 布局：顶部导航（进度 + 答题卡）、中部题目与解析（独立滚动）、底部操作栏。
  * 不用 100vh，全部靠 flex 撑满父容器高度（安卓 WebView 地址栏收缩不会跳动）。
  */
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { showImagePreview, showToast } from "vant";
 import { usePracticeStore } from "../stores/practice";
@@ -39,6 +39,49 @@ const accent = computed(() =>
   moduleColor(String(q.value?.module ?? ps.moduleKey))
 );
 
+// 单题实时配速秒表
+const elapsedSec = ref(0);
+let timerHandle: number | null = null;
+
+function updateTimer() {
+  if (!q.value) return;
+  const ans = ps.answers[q.value.id];
+  if (ans) {
+    elapsedSec.value = Math.max(1, Math.round(ans.durationMs / 1000));
+    if (timerHandle) {
+      clearInterval(timerHandle);
+      timerHandle = null;
+    }
+  } else {
+    const ms = Date.now() - ps.questionShownAt;
+    elapsedSec.value = Math.max(0, Math.floor(ms / 1000));
+  }
+}
+
+function startTimer() {
+  if (timerHandle) {
+    clearInterval(timerHandle);
+    timerHandle = null;
+  }
+  updateTimer();
+  const ans = q.value ? ps.answers[q.value.id] : null;
+  if (!ans) {
+    timerHandle = window.setInterval(updateTimer, 1000);
+  }
+}
+
+const formattedTime = computed(() => {
+  const m = Math.floor(elapsedSec.value / 60);
+  const s = elapsedSec.value % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+});
+
+const paceStatus = computed<"normal" | "warn" | "bad">(() => {
+  if (elapsedSec.value >= 90) return "bad";
+  if (elapsedSec.value >= 60) return "warn";
+  return "normal";
+});
+
 const statuses = computed(() => {
   const out: Record<string, "none" | "correct" | "wrong"> = {};
   for (const item of ps.queue) out[item.id] = ps.statusOf(item);
@@ -64,6 +107,7 @@ function previewStem(i: number) {
 
 async function onChoose(key: string) {
   await ps.choose(key);
+  updateTimer();
   if (settings.autoShowAnalysis || ps.mode === "exam") showAnalysis.value = true;
 }
 
@@ -107,14 +151,24 @@ function submitExam() {
   ps.submit();
   showAnalysis.value = true;
   resultShow.value = true;
+  updateTimer();
 }
 
-// 切题时重置解析展开状态
+// 切题时重置解析展开状态与秒表
 watch(
   () => ps.index,
   () => {
     showAnalysis.value = judged.value && settings.autoShowAnalysis;
     refreshFav();
+    startTimer();
+  }
+);
+
+// 判分变化时更新计时状态
+watch(
+  () => judged.value,
+  () => {
+    updateTimer();
   }
 );
 
@@ -152,6 +206,14 @@ onMounted(async () => {
   }
   showAnalysis.value = judged.value && settings.autoShowAnalysis;
   refreshFav();
+  startTimer();
+});
+
+onUnmounted(() => {
+  if (timerHandle) {
+    clearInterval(timerHandle);
+    timerHandle = null;
+  }
 });
 </script>
 
@@ -166,8 +228,7 @@ onMounted(async () => {
     >
       <template #subtitle>
         <span class="nav-sub">
-          {{ ps.title || moduleName(ps.moduleKey)
-          }}{{ ps.subType ? " · " + ps.subType : "" }}
+          {{ ps.title || moduleName(ps.moduleKey) }}
           · 正确 {{ ps.correctCount }}/{{ ps.answeredCount }}
         </span>
       </template>
@@ -177,6 +238,24 @@ onMounted(async () => {
       :percentage="Math.round(((ps.index + 1) / Math.max(ps.total, 1)) * 100)"
       :show-pivot="false"
     />
+
+    <!-- 顶部 HUD 监控与配速条 -->
+    <div class="hud-bar">
+      <div class="hud-tags">
+        <span class="hud-badge" :style="{ '--mc': accent }">
+          {{ q?.subType || ps.subType || moduleName(ps.moduleKey) }}
+        </span>
+        <span class="hud-stat">
+          正确率 <b>{{ ps.answeredCount ? ps.accuracy : 0 }}%</b>
+        </span>
+      </div>
+      <div class="hud-timer" :class="`pace-${paceStatus}`">
+        <span class="timer-dot" :class="{ running: !judged }"></span>
+        <span class="timer-num">{{ formattedTime }}</span>
+        <span v-if="paceStatus === 'warn' && !judged" class="pace-tip">配速预警</span>
+        <span v-else-if="paceStatus === 'bad' && !judged" class="pace-tip">建议速猜</span>
+      </div>
+    </div>
 
     <div class="s-body">
       <MaterialPanel
@@ -294,6 +373,94 @@ onMounted(async () => {
   color: var(--text-sub);
 }
 
+/* ---------- 顶部 HUD 状态配速条 ---------- */
+.hud-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 11px;
+}
+.hud-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hud-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--mc, var(--brand-a));
+  background: var(--mat-bg);
+  border: 1px solid var(--mc, var(--brand-a));
+}
+.hud-stat {
+  color: var(--text-sub);
+}
+.hud-stat b {
+  font-family: var(--font-mono);
+  color: var(--text-main);
+  font-weight: 700;
+}
+.hud-timer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--mat-bg);
+  border: 1px solid var(--border-color);
+  transition: all 0.25s ease;
+}
+.timer-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-a);
+}
+.timer-dot.running {
+  box-shadow: 0 0 6px var(--brand-glow);
+  animation: timerPulse 1.2s infinite ease-in-out;
+}
+@keyframes timerPulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+.hud-timer.pace-normal {
+  color: var(--brand-a);
+}
+.hud-timer.pace-warn {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: rgba(245, 158, 11, 0.1);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.25);
+}
+.hud-timer.pace-warn .timer-dot {
+  background: var(--warn);
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
+}
+.hud-timer.pace-bad {
+  color: var(--bad);
+  border-color: var(--bad);
+  background: rgba(244, 63, 94, 0.1);
+  box-shadow: 0 0 10px var(--bad-glow);
+}
+.hud-timer.pace-bad .timer-dot {
+  background: var(--bad);
+  box-shadow: 0 0 6px var(--bad-glow);
+}
+.pace-tip {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
 .s-body {
   flex: 1;
   min-height: 0;
@@ -321,8 +488,9 @@ onMounted(async () => {
   margin-bottom: 10px;
 }
 .q-no {
+  font-family: var(--font-mono);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 .q-tag {
   padding: 1px 9px;
@@ -335,6 +503,7 @@ onMounted(async () => {
 }
 .q-id {
   margin-left: auto;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-sub);
 }
@@ -359,27 +528,35 @@ onMounted(async () => {
   height: 8px;
 }
 
+/* 动效：解析面板平滑浮入 */
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 .analysis {
+  animation: slideInUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   margin-top: 12px;
   background: var(--card-bg);
   border-radius: var(--r-card);
   padding: 12px 14px;
   box-shadow: var(--shadow-card);
-  border: 1px solid transparent;
-  border-left-width: 3px;
+  border: 1px solid var(--border-color);
+  border-left-width: 4px;
   border-left-style: solid;
-}
-[data-theme="dark"] .analysis {
-  border-top-color: var(--border-color);
-  border-right-color: var(--border-color);
-  border-bottom-color: var(--border-color);
-  box-shadow: none;
 }
 .analysis.is-ok {
   border-left-color: var(--ok);
+  box-shadow: 0 0 14px var(--ok-glow);
 }
 .analysis.is-bad {
   border-left-color: var(--bad);
+  box-shadow: 0 0 14px var(--bad-glow);
 }
 .ana-head {
   display: flex;

@@ -20,6 +20,7 @@ import {
   type Overview,
 } from "../db/records";
 import TrendChart from "../components/TrendChart.vue";
+import RadarChart, { type RadarMetric } from "../components/RadarChart.vue";
 
 const route = useRoute();
 
@@ -44,6 +45,18 @@ const avgText = computed(() => {
 });
 
 const trendTotal = computed(() => trend.value.reduce((a, d) => a + d.attempted, 0));
+
+const radarData = computed<RadarMetric[]>(() => {
+  return MODULES.map((m) => {
+    const stat = byModule.value.find((b) => b.key === m.key);
+    return {
+      key: m.key,
+      name: m.short || m.name,
+      value: stat?.accuracy ?? 0,
+      attempted: stat?.attempted ?? 0,
+    };
+  });
+});
 
 async function load() {
   loading.value = true;
@@ -116,6 +129,15 @@ function barColor(a: number): string {
       <div v-if="usingFallback()" class="muted tip">
         当前为非 Tauri 预览环境，记录存在浏览器本地
       </div>
+    </div>
+
+    <!-- 四维能力雷达图 -->
+    <div class="card">
+      <div class="section-title">
+        四维战力雷达
+        <span class="muted">四大模块掌握度</span>
+      </div>
+      <RadarChart :data="radarData" />
     </div>
 
     <div class="card">

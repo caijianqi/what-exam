@@ -109,12 +109,15 @@ const labelStep = computed(() => (props.data.length > 14 ? 3 : props.data.length
 }
 .line {
   fill: none;
-  stroke: var(--brand-b);
-  stroke-width: 1.6;
+  stroke: var(--brand-a);
+  stroke-width: 2;
   stroke-linejoin: round;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px var(--brand-glow));
   vector-effect: non-scaling-stroke;
 }
 .label {
+  font-family: var(--font-mono);
   font-size: 9px;
   fill: var(--text-sub);
 }
