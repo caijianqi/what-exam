@@ -38,10 +38,11 @@ interface MemoryState {
   attempts: Record<string, unknown>[];
   wrong: Record<string, { question_id: string; wrong_count: number; mastered: number }>;
   favorites: Record<string, string>;
+  ai_explanations: Record<string, { question_id: string; model: string; content: string; created_at: string }>;
 }
 
 function emptyMemory(): MemoryState {
-  return { attempts: [], wrong: {}, favorites: {} };
+  return { attempts: [], wrong: {}, favorites: {}, ai_explanations: {} };
 }
 
 function readMemory(): MemoryState {
@@ -730,9 +731,62 @@ export async function clearAllData(): Promise<void> {
     writeMemory(emptyMemory());
     return;
   }
-  for (const t of ["attempts", "wrong_book", "favorites", "daily_stats"]) {
+  for (const t of ["attempts", "wrong_book", "favorites", "daily_stats", "ai_explanations"]) {
     await run(`DELETE FROM ${t}`);
   }
+}
+
+export interface CachedAiExplanation {
+  question_id: string;
+  model: string;
+  content: string;
+  created_at?: string;
+}
+
+/** 读取题目的 AI 解析缓存 */
+export async function getAiExplanation(
+  questionId: string
+): Promise<CachedAiExplanation | null> {
+  await ready();
+  if (memoryMode) {
+    const s = readMemory();
+    return s.ai_explanations?.[questionId] ?? null;
+  }
+  const rows = await query<CachedAiExplanation>(
+    `SELECT question_id, model, content, created_at FROM ai_explanations WHERE question_id = ? LIMIT 1`,
+    [questionId]
+  );
+  return rows[0] ?? null;
+}
+
+/** 保存或更新题目的 AI 解析缓存 */
+export async function saveAiExplanation(
+  questionId: string,
+  model: string,
+  content: string
+): Promise<void> {
+  await ready();
+  if (memoryMode) {
+    const s = readMemory();
+    if (!s.ai_explanations) s.ai_explanations = {};
+    s.ai_explanations[questionId] = {
+      question_id: questionId,
+      model,
+      content,
+      created_at: new Date().toISOString(),
+    };
+    writeMemory(s);
+    return;
+  }
+  await run(
+    `INSERT INTO ai_explanations (question_id, model, content, created_at)
+     VALUES (?, ?, ?, datetime('now','localtime'))
+     ON CONFLICT(question_id) DO UPDATE SET
+       model = excluded.model,
+       content = excluded.content,
+       created_at = excluded.created_at`,
+    [questionId, model, content]
+  );
 }
 
 export function usingFallback(): boolean {

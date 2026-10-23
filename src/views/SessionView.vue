@@ -13,11 +13,13 @@ import { useSettingsStore } from "../stores/settings";
 import { moduleColor, moduleName } from "../data/modules";
 import { assetUrl } from "../data/bank";
 import { richText } from "../utils/html";
-import { isFavorite, toggleFavorite } from "../db/records";
+import { isFavorite, toggleFavorite, getAiExplanation, saveAiExplanation, type CachedAiExplanation } from "../db/records";
+import { generateAiExplanation } from "../api/ai";
 import MaterialPanel from "../components/MaterialPanel.vue";
 import OptionList from "../components/OptionList.vue";
 import AnswerSheet from "../components/AnswerSheet.vue";
 import ResultSheet from "../components/ResultSheet.vue";
+import AiAnalysisViewer from "../components/AiAnalysisViewer.vue";
 
 const router = useRouter();
 const ps = usePracticeStore();
@@ -27,6 +29,13 @@ const sheetShow = ref(false);
 const resultShow = ref(false);
 const showAnalysis = ref(false);
 const faved = ref(false);
+
+// AI 解析相关状态
+const analysisTab = ref<"original" | "ai">("original");
+const currentAiExplanation = ref<CachedAiExplanation | null>(null);
+const aiLoading = ref(false);
+const aiError = ref("");
+let aiAbortCtrl: AbortController | null = null;
 
 const q = computed(() => ps.current);
 const judged = computed(
@@ -154,6 +163,90 @@ function submitExam() {
   updateTimer();
 }
 
+// 加载当前题目的 AI 解析缓存
+async function loadAiCache() {
+  cancelAiRequest();
+  aiError.value = "";
+  if (!q.value) {
+    currentAiExplanation.value = null;
+    return;
+  }
+  try {
+    currentAiExplanation.value = await getAiExplanation(q.value.id);
+  } catch {
+    currentAiExplanation.value = null;
+  }
+}
+
+function cancelAiRequest() {
+  if (aiAbortCtrl) {
+    aiAbortCtrl.abort();
+    aiAbortCtrl = null;
+  }
+  aiLoading.value = false;
+}
+
+async function triggerAiExplanation() {
+  if (!q.value) return;
+  if (!settings.aiApiKey.trim() || !settings.aiModel.trim()) {
+    showToast("请先在设置中配置 API Key 并选择模型");
+    router.push("/settings");
+    return;
+  }
+
+  cancelAiRequest();
+  aiAbortCtrl = new AbortController();
+  aiLoading.value = true;
+  aiError.value = "";
+
+  try {
+    let matText = "";
+    if (ps.currentMaterial) {
+      matText = ps.currentMaterial.content
+        .filter((b) => b.t === "text")
+        .map((b) => b.v)
+        .join("\n");
+    }
+
+    const content = await generateAiExplanation({
+      baseUrl: settings.aiBaseUrl,
+      apiKey: settings.aiApiKey,
+      model: settings.aiModel,
+      question: q.value,
+      materialText: matText,
+      chosen: ps.currentAnswer?.chosen ?? null,
+      signal: aiAbortCtrl.signal,
+    });
+
+    await saveAiExplanation(q.value.id, settings.aiModel, content);
+    currentAiExplanation.value = {
+      question_id: q.value.id,
+      model: settings.aiModel,
+      content,
+    };
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    aiError.value = msg;
+    showToast({ message: "生成失败：" + msg, duration: 3000 });
+  } finally {
+    aiLoading.value = false;
+    aiAbortCtrl = null;
+  }
+}
+
+async function copyAiText() {
+  if (!currentAiExplanation.value?.content) return;
+  try {
+    await navigator.clipboard.writeText(currentAiExplanation.value.content);
+    showToast("AI 解析已复制");
+  } catch {
+    showToast("复制失败");
+  }
+}
+
 // 切题时重置解析展开状态与秒表
 watch(
   () => ps.index,
@@ -161,6 +254,7 @@ watch(
     showAnalysis.value = judged.value && settings.autoShowAnalysis;
     refreshFav();
     startTimer();
+    loadAiCache();
   }
 );
 
@@ -207,6 +301,7 @@ onMounted(async () => {
   showAnalysis.value = judged.value && settings.autoShowAnalysis;
   refreshFav();
   startTimer();
+  loadAiCache();
 });
 
 onUnmounted(() => {
@@ -214,6 +309,7 @@ onUnmounted(() => {
     clearInterval(timerHandle);
     timerHandle = null;
   }
+  cancelAiRequest();
 });
 </script>
 
@@ -311,9 +407,71 @@ onUnmounted(() => {
           </van-button>
         </div>
         <div v-if="showAnalysis" class="ana-body">
-          <div class="ana-title">解析</div>
-          {{ q.explanation }}
-          <div class="ana-src">原 PDF 第 {{ q.srcPage }} 页 · {{ q.id }}</div>
+          <van-tabs v-model:active="analysisTab" shrink class="ana-tabs">
+            <van-tab title="参考解析" name="original">
+              <div class="tab-content-box">
+                <div class="ana-text">{{ q.explanation }}</div>
+                <div class="ana-src">原 PDF 第 {{ q.srcPage }} 页 · {{ q.id }}</div>
+              </div>
+            </van-tab>
+
+            <van-tab title="AI解析" name="ai">
+              <div class="tab-content-box ai-tab-box">
+                <!-- 未配置模型 -->
+                <div v-if="!settings.aiModel || !settings.aiApiKey" class="ai-box ai-empty-box">
+                  <div class="ai-empty-title">尚未配置 AI 模型或 API Key</div>
+                  <div class="ai-empty-desc">前往设置页面配置 MiniMax API Key 并拉取选定模型后即可使用</div>
+                  <van-button size="small" type="primary" plain @click="router.push('/settings')">
+                    前往配置
+                  </van-button>
+                </div>
+
+                <!-- 生成中 -->
+                <div v-else-if="aiLoading" class="ai-box ai-loading-box">
+                  <van-loading size="22px" vertical color="var(--brand-a)">
+                    AI 正在深入剖析本题（模型：{{ settings.aiModel }}）...
+                  </van-loading>
+                  <van-button size="mini" plain style="margin-top: 10px" @click="cancelAiRequest">
+                    取消生成
+                  </van-button>
+                </div>
+
+                <!-- 生成失败 -->
+                <div v-else-if="aiError" class="ai-box ai-error-box">
+                  <div class="ai-error-msg">生成解析失败：{{ aiError }}</div>
+                  <van-button size="small" plain type="danger" @click="triggerAiExplanation">
+                    重试
+                  </van-button>
+                </div>
+
+                <!-- 已有 AI 解析 -->
+                <AiAnalysisViewer
+                  v-else-if="currentAiExplanation"
+                  :content="currentAiExplanation.content"
+                  :model="currentAiExplanation.model"
+                  @copy="copyAiText"
+                  @regenerate="triggerAiExplanation"
+                />
+
+                <!-- 未生成（手动触发初始态） -->
+                <div v-else class="ai-box ai-init-box">
+                  <div class="ai-init-tip">
+                    当前选用模型：<span class="ai-model-name">{{ settings.aiModel }}</span>
+                  </div>
+                  <div class="ai-init-sub">点击下方按钮手动触发 AI 名师深度拆解本题</div>
+                  <van-button
+                    type="primary"
+                    size="small"
+                    icon="bulb-o"
+                    class="ai-trigger-btn"
+                    @click="triggerAiExplanation"
+                  >
+                    生成 AI 解析
+                  </van-button>
+                </div>
+              </div>
+            </van-tab>
+          </van-tabs>
         </div>
       </div>
 
@@ -585,24 +743,106 @@ onUnmounted(() => {
 }
 .ana-body {
   margin-top: 10px;
-  padding: 10px 12px;
+  padding: 4px 6px;
   border-radius: var(--r-sm);
   background: var(--mat-bg);
   font-size: 14px;
+}
+.ana-tabs :deep(.van-tabs__nav) {
+  background: transparent;
+  padding-bottom: 6px;
+}
+.ana-tabs :deep(.van-tab) {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0 12px;
+}
+.tab-content-box {
+  padding: 8px 6px;
+}
+.ana-text {
   line-height: 1.75;
   white-space: pre-wrap;
   text-align: justify;
-}
-.ana-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-sub);
-  margin-bottom: 2px;
 }
 .ana-src {
   margin-top: 8px;
   font-size: 11px;
   color: var(--text-sub);
+}
+
+/* AI 解析各状态模块 */
+.ai-box {
+  padding: 12px 8px;
+  text-align: center;
+}
+.ai-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 4px;
+}
+.ai-empty-desc {
+  font-size: 12px;
+  color: var(--text-sub);
+  margin-bottom: 12px;
+}
+.ai-loading-box {
+  padding: 18px 0;
+}
+.ai-error-box {
+  color: var(--bad);
+}
+.ai-error-msg {
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.ai-init-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.ai-init-tip {
+  font-size: 13px;
+  color: var(--text-color);
+  margin-bottom: 4px;
+}
+.ai-model-name {
+  font-weight: 600;
+  color: var(--brand-a);
+}
+.ai-init-sub {
+  font-size: 11px;
+  color: var(--text-sub);
+  margin-bottom: 12px;
+}
+.ai-result-box {
+  text-align: left;
+  padding: 4px 2px;
+}
+.ai-meta-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--border-color);
+}
+.ai-model-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  color: var(--brand-a);
+}
+.ai-text {
+  font-size: 13.5px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-color);
 }
 
 .s-foot {

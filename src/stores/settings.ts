@@ -20,6 +20,14 @@ export const useSettingsStore = defineStore("settings", () => {
   const fontSize = ref(15);
   const autoShowAnalysis = ref(true);
   const dailyGoal = ref(30);
+
+  // AI 相关配置
+  const aiProvider = ref("minimax");
+  const aiApiKey = ref("");
+  const aiBaseUrl = ref("https://api.minimax.chat/v1");
+  const aiModel = ref(""); // 不默认设置模型，需通过拉取获取
+  const aiModelList = ref<string[]>([]);
+
   const ready = ref(false);
 
   // Vant 的 theme 只接受 light / dark，auto 需自行解析
@@ -37,25 +45,53 @@ export const useSettingsStore = defineStore("settings", () => {
     if (ready.value) return;
     const store = await getStore();
     if (store) {
-      const [t, f, a, g] = await Promise.all([
+      const [t, f, a, g, aip, key, base, model, list] = await Promise.all([
         store.get<ThemeMode>("themeMode"),
         store.get<number>("fontSize"),
         store.get<boolean>("autoShowAnalysis"),
         store.get<number>("dailyGoal"),
+        store.get<string>("aiProvider"),
+        store.get<string>("aiApiKey"),
+        store.get<string>("aiBaseUrl"),
+        store.get<string>("aiModel"),
+        store.get<string[]>("aiModelList"),
       ]);
       if (t) themeMode.value = t;
       if (f) fontSize.value = f;
       if (a !== undefined && a !== null) autoShowAnalysis.value = a;
       if (g) dailyGoal.value = g;
+      if (aip) aiProvider.value = aip;
+      if (key) aiApiKey.value = key;
+      if (base) {
+        aiBaseUrl.value = base === "https://api.minimaxi.chat/v1" ? "https://api.minimax.chat/v1" : base;
+      }
+      if (model) aiModel.value = model;
+      if (Array.isArray(list)) aiModelList.value = list;
     } else {
       const raw = localStorage.getItem(FALLBACK_KEY);
       if (raw) {
         const saved = JSON.parse(raw) as Partial<{
           themeMode: ThemeMode;
           fontSize: number;
+          autoShowAnalysis: boolean;
+          dailyGoal: number;
+          aiProvider: string;
+          aiApiKey: string;
+          aiBaseUrl: string;
+          aiModel: string;
+          aiModelList: string[];
         }>;
         if (saved.themeMode) themeMode.value = saved.themeMode;
         if (saved.fontSize) fontSize.value = saved.fontSize;
+        if (saved.autoShowAnalysis !== undefined) autoShowAnalysis.value = saved.autoShowAnalysis;
+        if (saved.dailyGoal) dailyGoal.value = saved.dailyGoal;
+        if (saved.aiProvider) aiProvider.value = saved.aiProvider;
+        if (saved.aiApiKey) aiApiKey.value = saved.aiApiKey;
+        if (saved.aiBaseUrl) {
+          aiBaseUrl.value = saved.aiBaseUrl === "https://api.minimaxi.chat/v1" ? "https://api.minimax.chat/v1" : saved.aiBaseUrl;
+        }
+        if (saved.aiModel) aiModel.value = saved.aiModel;
+        if (Array.isArray(saved.aiModelList)) aiModelList.value = saved.aiModelList;
       }
     }
     ready.value = true;
@@ -66,10 +102,15 @@ export const useSettingsStore = defineStore("settings", () => {
     if (store) {
       await store.set(key, value);
     } else {
-      localStorage.setItem(
-        FALLBACK_KEY,
-        JSON.stringify({ themeMode: themeMode.value, fontSize: fontSize.value })
-      );
+      const existing = (() => {
+        try {
+          return JSON.parse(localStorage.getItem(FALLBACK_KEY) || "{}");
+        } catch {
+          return {};
+        }
+      })();
+      existing[key] = value;
+      localStorage.setItem(FALLBACK_KEY, JSON.stringify(existing));
     }
   }
 
@@ -77,12 +118,22 @@ export const useSettingsStore = defineStore("settings", () => {
   watch(fontSize, (v) => persist("fontSize", v));
   watch(autoShowAnalysis, (v) => persist("autoShowAnalysis", v));
   watch(dailyGoal, (v) => persist("dailyGoal", v));
+  watch(aiProvider, (v) => persist("aiProvider", v));
+  watch(aiApiKey, (v) => persist("aiApiKey", v));
+  watch(aiBaseUrl, (v) => persist("aiBaseUrl", v));
+  watch(aiModel, (v) => persist("aiModel", v));
+  watch(aiModelList, (v) => persist("aiModelList", v), { deep: true });
 
   return {
     themeMode,
     fontSize,
     autoShowAnalysis,
     dailyGoal,
+    aiProvider,
+    aiApiKey,
+    aiBaseUrl,
+    aiModel,
+    aiModelList,
     ready,
     resolvedTheme,
     init,

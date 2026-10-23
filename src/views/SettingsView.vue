@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { showConfirmDialog, showDialog, showToast } from "vant";
 import { useSettingsStore, type ThemeMode } from "../stores/settings";
 import { clearAllData, exportData, importData } from "../db/records";
+import { fetchAiModels } from "../api/ai";
 
 const settings = useSettingsStore();
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -92,6 +93,46 @@ const themeOptions: { label: string; value: ThemeMode }[] = [
   { label: "深色", value: "dark" },
 ];
 
+const pullingModels = ref(false);
+const showModelPicker = ref(false);
+
+const modelPickerColumns = computed(() => {
+  return settings.aiModelList.map((m) => ({ text: m, value: m }));
+});
+
+async function pullModels() {
+  if (!settings.aiApiKey.trim()) {
+    showToast("请先填写 API Key");
+    return;
+  }
+  // 自动纠正旧的错误域名 minimaxi.chat -> minimax.chat
+  if (settings.aiBaseUrl.includes("minimaxi.chat")) {
+    settings.aiBaseUrl = settings.aiBaseUrl.replace("minimaxi.chat", "minimax.chat");
+  }
+
+  pullingModels.value = true;
+  try {
+    const list = await fetchAiModels(settings.aiBaseUrl, settings.aiApiKey);
+    settings.aiModelList = list;
+    showToast(`成功获取 ${list.length} 个可用模型`);
+    if (!settings.aiModel || !list.includes(settings.aiModel)) {
+      settings.aiModel = list[0];
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    showToast({ message: "拉取失败：" + msg, duration: 4000 });
+  } finally {
+    pullingModels.value = false;
+  }
+}
+
+function onConfirmModel({ selectedOptions }: { selectedOptions: Array<{ value: string }> }) {
+  if (selectedOptions[0]?.value) {
+    settings.aiModel = selectedOptions[0].value;
+  }
+  showModelPicker.value = false;
+}
+
 async function clearData() {
   await showConfirmDialog({
     title: "清空做题数据",
@@ -143,6 +184,54 @@ async function clearData() {
     </div>
 
     <div class="card">
+      <div class="section-title">AI 解析配置</div>
+      <div class="muted" style="margin-bottom: 8px">
+        支持 MiniMax（海螺 AI）官方开放平台接口，未配置默认模型，需输入密钥后点击拉取
+      </div>
+
+      <van-field label="服务商" readonly model-value="MiniMax" />
+
+      <van-field
+        v-model="settings.aiApiKey"
+        label="API Key"
+        type="password"
+        placeholder="输入 MiniMax API Key"
+        clearable
+      />
+
+      <van-field
+        v-model="settings.aiBaseUrl"
+        label="接口地址"
+        placeholder="https://api.minimax.chat/v1"
+        clearable
+      />
+
+      <van-field
+        label="当前模型"
+        readonly
+        :model-value="settings.aiModel || '未配置（请点击拉取模型）'"
+        is-link
+        @click="settings.aiModelList.length ? (showModelPicker = true) : pullModels()"
+      >
+        <template #button>
+          <van-button
+            size="small"
+            type="primary"
+            plain
+            :loading="pullingModels"
+            @click.stop="pullModels"
+          >
+            拉取模型
+          </van-button>
+        </template>
+      </van-field>
+
+      <div v-if="settings.aiModelList.length > 0" class="model-hint">
+        已拉取 {{ settings.aiModelList.length }} 个模型，点击上方“当前模型”可随时切换
+      </div>
+    </div>
+
+    <div class="card">
       <div class="section-title">数据备份</div>
       <div class="muted" style="margin-bottom: 10px">
         导出做题记录 / 错题 / 收藏为 JSON，换机时导入即可恢复
@@ -187,6 +276,15 @@ async function clearData() {
       <div class="muted">题库 500 题（数量 120 / 判断 130 / 言语 130 / 资料 120）</div>
       <div class="muted">开发期运行在桌面窗口（390×844 模拟手机视口）</div>
     </div>
+
+    <van-popup v-model:show="showModelPicker" position="bottom" round>
+      <van-picker
+        title="选择 AI 模型"
+        :columns="modelPickerColumns"
+        @confirm="onConfirmModel"
+        @cancel="showModelPicker = false"
+      />
+    </van-popup>
   </div>
 </template>
 
@@ -204,5 +302,10 @@ async function clearData() {
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+.model-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--brand-a);
 }
 </style>

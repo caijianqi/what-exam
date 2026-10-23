@@ -37,6 +37,13 @@ export const CREATE_TABLES: string[] = [
     key TEXT PRIMARY KEY,
     value TEXT
   )`,
+  // AI 解析缓存
+  `CREATE TABLE IF NOT EXISTS ai_explanations (
+    question_id TEXT PRIMARY KEY,
+    model TEXT,
+    content TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  )`,
 ];
 
 export const CREATE_INDEXES: string[] = [
