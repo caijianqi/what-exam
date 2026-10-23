@@ -743,19 +743,31 @@ export interface CachedAiExplanation {
   created_at?: string;
 }
 
-/** 读取题目的 AI 解析缓存 */
+function makeAiKey(questionId: string, type: "standard" | "speed" = "standard"): string {
+  return `${questionId}:${type}`;
+}
+
+/** 读取题目的 AI 解析缓存（支持教研精析与30秒秒杀独立缓存） */
 export async function getAiExplanation(
-  questionId: string
+  questionId: string,
+  type: "standard" | "speed" = "standard"
 ): Promise<CachedAiExplanation | null> {
   await ready();
+  const key = makeAiKey(questionId, type);
   if (memoryMode) {
     const s = readMemory();
-    return s.ai_explanations?.[questionId] ?? null;
+    return s.ai_explanations?.[key] ?? (type === "standard" ? s.ai_explanations?.[questionId] : null) ?? null;
   }
-  const rows = await query<CachedAiExplanation>(
+  let rows = await query<CachedAiExplanation>(
     `SELECT question_id, model, content, created_at FROM ai_explanations WHERE question_id = ? LIMIT 1`,
-    [questionId]
+    [key]
   );
+  if (!rows.length && type === "standard") {
+    rows = await query<CachedAiExplanation>(
+      `SELECT question_id, model, content, created_at FROM ai_explanations WHERE question_id = ? LIMIT 1`,
+      [questionId]
+    );
+  }
   return rows[0] ?? null;
 }
 
@@ -763,14 +775,16 @@ export async function getAiExplanation(
 export async function saveAiExplanation(
   questionId: string,
   model: string,
-  content: string
+  content: string,
+  type: "standard" | "speed" = "standard"
 ): Promise<void> {
   await ready();
+  const key = makeAiKey(questionId, type);
   if (memoryMode) {
     const s = readMemory();
     if (!s.ai_explanations) s.ai_explanations = {};
-    s.ai_explanations[questionId] = {
-      question_id: questionId,
+    s.ai_explanations[key] = {
+      question_id: key,
       model,
       content,
       created_at: new Date().toISOString(),
@@ -785,7 +799,7 @@ export async function saveAiExplanation(
        model = excluded.model,
        content = excluded.content,
        created_at = excluded.created_at`,
-    [questionId, model, content]
+    [key, model, content]
   );
 }
 

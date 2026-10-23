@@ -1,27 +1,40 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { parseAiSections } from "../utils/aiFormat";
+import { parseAiDualViews, parseAiSections } from "../utils/aiFormat";
 
-const props = defineProps<{
-  content: string;
-  model: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    content: string;
+    model: string;
+    viewMode?: "standard" | "speed" | "all";
+  }>(),
+  {
+    viewMode: "all",
+  }
+);
 
 const emit = defineEmits<{
   (e: "copy"): void;
   (e: "regenerate"): void;
 }>();
 
-const sections = computed(() => parseAiSections(props.content));
+const dualViews = computed(() => parseAiDualViews(props.content));
+const sections = computed(() => {
+  if (props.viewMode === "standard") return dualViews.value.standard;
+  if (props.viewMode === "speed") return dualViews.value.speed;
+  return parseAiSections(props.content);
+});
 </script>
 
 <template>
-  <div class="ai-viewer">
+  <div class="ai-viewer" :class="`view-${viewMode}`">
     <!-- 顶栏状态与操作栏 -->
     <div class="ai-head-bar">
-      <div class="ai-model-badge">
-        <van-icon name="gem-o" class="model-icon" />
-        <span>{{ model }}</span>
+      <div class="ai-head-left">
+        <div class="ai-model-badge">
+          <van-icon name="gem-o" class="model-icon" />
+          <span>{{ model }}</span>
+        </div>
       </div>
       <div class="ai-actions">
         <van-button size="mini" plain class="act-btn" @click="emit('copy')">
@@ -45,7 +58,8 @@ const sections = computed(() => parseAiSections(props.content));
       >
         <div class="sec-header">
           <span class="sec-icon-wrap">
-            <span v-if="sec.type === 'point'">🎯</span>
+            <span v-if="sec.type === 'speed'">⚡</span>
+            <span v-else-if="sec.type === 'point'">🎯</span>
             <span v-else-if="sec.type === 'steps'">💡</span>
             <span v-else-if="sec.type === 'options'">⚖️</span>
             <span v-else-if="sec.type === 'tips'">🌟</span>
@@ -74,6 +88,12 @@ const sections = computed(() => parseAiSections(props.content));
   border-bottom: 1px dashed var(--border-color);
 }
 
+.ai-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .ai-model-badge {
   display: inline-flex;
   align-items: center;
@@ -86,6 +106,7 @@ const sections = computed(() => parseAiSections(props.content));
   font-weight: 600;
   color: var(--brand-a);
 }
+
 
 .model-icon {
   font-size: 12px;
@@ -168,6 +189,24 @@ const sections = computed(() => parseAiSections(props.content));
   color: var(--warn);
 }
 
+/* 30秒极速秒杀 - 高能闪电金与极速光晕 */
+.sec-speed {
+  border-left: 3.5px solid #f59e0b;
+  background: linear-gradient(135deg, var(--card-bg) 80%, rgba(245, 158, 11, 0.14));
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.12);
+}
+.sec-speed .sec-title {
+  color: #d97706;
+  font-weight: 800;
+}
+
+.sec-body :deep(.ai-speed-empty-tip) {
+  padding: 12px 8px;
+  text-align: center;
+  color: var(--text-sub);
+  font-size: 12.5px;
+}
+
 .sec-body {
   font-size: 13px;
   line-height: 1.85;
@@ -242,6 +281,18 @@ const sections = computed(() => parseAiSections(props.content));
   font-weight: 700;
   box-shadow: 0 1px 4px var(--brand-glow);
   vertical-align: baseline;
+}
+
+/* 推导步骤箭头标注 */
+.sec-body :deep(.ai-step-arrow) {
+  display: inline-block;
+  color: var(--brand-a);
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  padding: 0 3px;
+}
+.sec-speed .sec-body :deep(.ai-step-arrow) {
+  color: #d97706;
 }
 
 .sec-body :deep(.ai-math-underline) {

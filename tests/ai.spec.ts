@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fetchAiModels, generateAiExplanation } from "../src/api/ai";
 import { getAiExplanation, saveAiExplanation } from "../src/db/records";
-import { parseAiSections } from "../src/utils/aiFormat";
+import { parseAiDualViews, parseAiSections } from "../src/utils/aiFormat";
 import type { Question } from "../src/data/bank";
 
 describe("AI API 与缓存模块", () => {
@@ -120,15 +120,18 @@ describe("AI API 与缓存模块", () => {
     );
   });
 
-  it("getAiExplanation & saveAiExplanation 缓存读写", async () => {
+  it("getAiExplanation & saveAiExplanation 缓存读写与独立类型隔离", async () => {
     const cachedBefore = await getAiExplanation("shuliang-001");
     expect(cachedBefore).toBeNull();
 
-    await saveAiExplanation("shuliang-001", "MiniMax-Text-01", "这是缓存的AI解析");
-    const cachedAfter = await getAiExplanation("shuliang-001");
-    expect(cachedAfter).not.toBeNull();
-    expect(cachedAfter?.model).toBe("MiniMax-Text-01");
-    expect(cachedAfter?.content).toBe("这是缓存的AI解析");
+    await saveAiExplanation("shuliang-001", "MiniMax-Text-01", "这是标准教研解析", "standard");
+    await saveAiExplanation("shuliang-001", "MiniMax-Text-01", "这是30秒极速秒杀", "speed");
+
+    const stdCached = await getAiExplanation("shuliang-001", "standard");
+    const spdCached = await getAiExplanation("shuliang-001", "speed");
+
+    expect(stdCached?.content).toBe("这是标准教研解析");
+    expect(spdCached?.content).toBe("这是30秒极速秒杀");
   });
 
   it("parseAiSections: 成功解析公考结构化卡片与 LaTeX 公式", () => {
@@ -245,5 +248,50 @@ describe("AI API 与缓存模块", () => {
     expect(html).not.toContain("\\boxed");
     expect(html).toContain("ai-math-boxed");
     expect(html).toContain("59");
+  });
+
+  it("parseAiDualViews: 成功将全量解析拆分为教研精析与30秒极速秒杀双视图", () => {
+    const raw = `一、【考点定位】
+本题考查等差数列。
+
+二、【解题思路】
+详细计算过程略。
+
+三、【选项辨析】
+- **A项：** 错误。
+- **B项：** 正确。
+
+四、【名师点拨】
+注意审题。
+
+五、【30秒极速秒杀】
+【秒杀心法】：观察尾数直接锁定。
+【秒杀步骤】：只需看最后一位 3+6=9。
+【秒杀口诀】：算尾不算头，秒杀不用愁。`;
+
+    const dual = parseAiDualViews(raw);
+    expect(dual.standard).toHaveLength(4);
+    expect(dual.standard.map((s) => s.title)).toEqual(["考点定位", "解题思路", "选项辨析", "名师点拨"]);
+
+    expect(dual.speed).toHaveLength(1);
+    expect(dual.speed[0].title).toBe("30秒极速秒杀");
+    expect(dual.speed[0].type).toBe("speed");
+    expect(dual.speed[0].html).toContain("算尾不算头");
+  });
+
+  it("formatLatexAndSymbols: 成功将 \\overset{\\times 0.5}{\\longrightarrow} 转换为结构化步骤箭头", () => {
+    const raw = `\\[4\\overset{\\times 0.5}{\\longrightarrow}2\\overset{\\times 0.5}{\\longrightarrow}1\\overset{\\times 0.5}{\\longrightarrow}0.5\\]`;
+    const sections = parseAiSections(raw);
+    expect(sections).toHaveLength(1);
+    const html = sections[0].html;
+
+    expect(html).not.toContain("\\overset");
+    expect(html).not.toContain("\\longrightarrow");
+    expect(html).toContain("ai-step-arrow");
+    expect(html).toContain("4");
+    expect(html).toContain("──[× 0.5]──→");
+    expect(html).toContain("2");
+    expect(html).toContain("1");
+    expect(html).toContain("0.5");
   });
 });

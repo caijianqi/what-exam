@@ -4,10 +4,15 @@
  */
 
 export interface AiSection {
-  type: "point" | "steps" | "options" | "tips" | "general";
+  type: "point" | "steps" | "options" | "tips" | "speed" | "general";
   title: string;
   icon: string;
   html: string;
+}
+
+export interface DualAiViewSections {
+  standard: AiSection[];
+  speed: AiSection[];
 }
 
 /**
@@ -55,33 +60,78 @@ function cleanMath(formula: string): string {
   s = s.replace(/\\boxed\{([\s\S]*?)\}/g, '<span class="ai-math-boxed">$1</span>');
   s = s.replace(/\\underline\{([\s\S]*?)\}/g, '<span class="ai-math-underline">$1</span>');
   s = s.replace(/\\bm\{([^}]+)\}|\\boldsymbol\{([^}]+)\}/g, "<strong>$1$2</strong>");
-  s = s.replace(/\\text\{([^}]+)\}/g, "$1");
-  s = s.replace(/\\mathrm\{([^}]+)\}/g, "$1");
-  s = s.replace(/\\mathbf\{([^}]+)\}/g, "<strong>$1</strong>");
+  s = s.replace(/\\(?:text|mathrm|mathbf|textbf|textit|mathit)\{([\s\S]*?)\}/g, "$1");
+  s = s.replace(/\\left\s*([(\[{.|])/g, "$1");
+  s = s.replace(/\\right\s*([)\]}.|])/g, "$1");
 
   // LaTeX 多行公式换行符 \\ 或 \\ [1ex] -> <br/>
   s = s.replace(/\\\\(?:\s*\[[\s\S]*?\])?/g, "<br/>");
+
+  // 箭头与推导标注（支持 \overset、\stackrel、\underset、\xrightarrow 等推导箭头）
+  s = s.replace(
+    /\\(?:overset|stackrel)\s*\{([\s\S]*?)\}\s*\{([\s\S]*?)\}/g,
+    (_, above, base) => {
+      const cleanAbove = cleanMath(above);
+      const isLeft = /\\(?:longleftarrow|leftarrow|Leftarrow|Longleftarrow)|<-|←|⇐/i.test(base);
+      const isRight = /\\(?:longrightarrow|rightarrow|to|Rightarrow|Longrightarrow)|->|→|⇒/i.test(base);
+      if (isLeft) {
+        return ` <span class="ai-step-arrow">←──[${cleanAbove}]──</span> `;
+      }
+      if (isRight) {
+        return ` <span class="ai-step-arrow">──[${cleanAbove}]──→</span> `;
+      }
+      const cleanBase = cleanMath(base);
+      return ` ${cleanBase}[${cleanAbove}] `;
+    }
+  );
+
+  s = s.replace(
+    /\\underset\s*\{([\s\S]*?)\}\s*\{([\s\S]*?)\}/g,
+    (_, below, base) => {
+      const cleanBelow = cleanMath(below);
+      const cleanBase = cleanMath(base);
+      return ` ${cleanBase}[${cleanBelow}] `;
+    }
+  );
+
+  s = s.replace(
+    /\\xrightarrow(?:\s*\[([\s\S]*?)\])?\s*\{([\s\S]*?)\}/g,
+    (_, below, above) => {
+      const cleanAbove = cleanMath(above);
+      const cleanBelow = below ? cleanMath(below) : "";
+      const label = cleanBelow ? `${cleanAbove} / ${cleanBelow}` : cleanAbove;
+      return ` <span class="ai-step-arrow">──[${label}]──→</span> `;
+    }
+  );
 
   // 对齐符号 &= 或 &
   s = s.replace(/&=/g, " = ");
   s = s.replace(/&/g, " ");
 
+  // 独立箭头
+  s = s.replace(/\\(?:longrightarrow|rightarrow|to)(?![a-zA-Z])/g, " → ");
+  s = s.replace(/\\(?:longleftarrow|leftarrow)(?![a-zA-Z])/g, " ← ");
+  s = s.replace(/\\(?:Longrightarrow|implies|Rightarrow)(?![a-zA-Z])/g, " ⇒ ");
+  s = s.replace(/\\(?:Longleftarrow|Leftarrow)(?![a-zA-Z])/g, " ⇐ ");
+  s = s.replace(/\\(?:iff|Longleftrightarrow|Leftrightarrow)(?![a-zA-Z])/g, " ⇔ ");
+
   // 关系符与运算符
-  s = s.replace(/\\div/g, " ÷ ");
-  s = s.replace(/\\times/g, " × ");
-  s = s.replace(/\\approx/g, " ≈ ");
-  s = s.replace(/\\neq/g, " ≠ ");
+  s = s.replace(/\\div(?![a-zA-Z])/g, " ÷ ");
+  s = s.replace(/\\times(?![a-zA-Z])/g, " × ");
+  s = s.replace(/\\approx(?![a-zA-Z])/g, " ≈ ");
+  s = s.replace(/\\neq(?![a-zA-Z])/g, " ≠ ");
   s = s.replace(/\\ne(?![a-zA-Z])/g, " ≠ ");
-  s = s.replace(/\\leq/g, " ≤ ")
+  s = s.replace(/\\leq(?![a-zA-Z])/g, " ≤ ");
   s = s.replace(/\\le(?![a-zA-Z])/g, " ≤ ");
-  s = s.replace(/\\geq/g, " ≥ ");
+  s = s.replace(/\\geq(?![a-zA-Z])/g, " ≥ ");
   s = s.replace(/\\ge(?![a-zA-Z])/g, " ≥ ");
-  s = s.replace(/\\pm/g, " ± ");
-  s = s.replace(/\\cdot/g, " · ");
-  s = s.replace(/\\dots|\\cdots|\\ldots/g, " … ");
+  s = s.replace(/\\pm(?![a-zA-Z])/g, " ± ");
+  s = s.replace(/\\cdot(?![a-zA-Z])/g, " · ");
+  s = s.replace(/\\(?:dots|cdots|ldots)(?![a-zA-Z])/g, " … ");
+
   // 间距与空格转义：\ (反斜杠加空格), \quad, \qquad, \;, \:, \!
-  s = s.replace(/\\qquad/g, "  ");
-  s = s.replace(/\\quad/g, " ");
+  s = s.replace(/\\qquad(?![a-zA-Z])/g, "  ");
+  s = s.replace(/\\quad(?![a-zA-Z])/g, " ");
   s = s.replace(/\\[ ,;:]/g, " ");
   s = s.replace(/\\!/g, "");
   s = s.replace(/\\([%${}_&#])/g, "$1");
@@ -90,10 +140,7 @@ function cleanMath(formula: string): string {
   s = s.replace(/,\s+/g, ", ");
   s = s.replace(/，\s+/g, "，");
 
-  // 箭头与分式
-  s = s.replace(/\\xrightarrow\{([\s\S]*?)\}/g, " ──[$1]──→ ");
-  s = s.replace(/\\rightarrow|\\to/g, " → ");
-  s = s.replace(/\\leftarrow/g, " ← ");
+  // 根号与分式
   s = s.replace(/\\sqrt\[(.*?)\]\{(.*?)\}/g, "<sup>$1</sup>√($2)");
   s = s.replace(/\\sqrt\{(.*?)\}/g, "√($1)");
   s = s.replace(/\\frac\{([\s\S]*?)\}\{([\s\S]*?)\}/g, '<span class="ai-frac"><span class="frac-n">$1</span><span class="frac-d">$2</span></span>');
@@ -105,6 +152,9 @@ function cleanMath(formula: string): string {
   // 下标：a_n -> a<sub>n</sub>，a_{n-1} -> a<sub>n-1</sub>
   s = s.replace(/_\{([^}]+)\}/g, "<sub>$1</sub>");
   s = s.replace(/_([0-9a-zA-Z]+)/g, "<sub>$1</sub>");
+
+  // 合并多余的连续空格
+  s = s.replace(/ {2,}/g, " ");
 
   return s.trim();
 }
@@ -316,8 +366,8 @@ export function parseAiSections(raw: string): AiSection[] {
   if (!raw || !raw.trim()) return [];
 
   // 识别模块大标题规则
-  // 例如：一、【考点定位】 或 【考点定位】 或 ## 考点定位
-  const pattern = /(?:^|\n)(?:[一二三四五六七八九十]、)?(?:#{1,3}\s*)?【\s*(考点定位|解题思路|选项辨析|名师点拨|核心考点|题目解析|秒杀技巧)\s*】/g;
+  // 例如：一、【考点定位】 或 【考点定位】 或 五、【30秒极速秒杀】
+  const pattern = /(?:^|\n)(?:[一二三四五六七八九十]、)?(?:#{1,3}\s*)?【\s*(考点定位|解题思路|选项辨析|名师点拨|核心考点|题目解析|30秒极速秒杀|极速秒杀|秒杀技巧|秒解技巧|30秒秒杀)\s*】/g;
 
   const matches: Array<{ index: number; title: string; fullLen: number }> = [];
   let m: RegExpExecArray | null;
@@ -352,7 +402,10 @@ export function parseAiSections(raw: string): AiSection[] {
     let type: AiSection["type"] = "general";
     let icon = "info-o";
 
-    if (cur.title.includes("考点")) {
+    if (cur.title.includes("秒杀") || cur.title.includes("秒解") || cur.title.includes("速解")) {
+      type = "speed";
+      icon = "fire-o"; // 极速秒杀
+    } else if (cur.title.includes("考点")) {
       type = "point";
       icon = "aim"; // 考点定位
     } else if (cur.title.includes("思路") || cur.title.includes("解析")) {
@@ -377,4 +430,33 @@ export function parseAiSections(raw: string): AiSection[] {
   }
 
   return sections;
+}
+
+/**
+ * 将整篇解析内容拆分为「教研精析」和「30秒极速秒杀」双视图
+ */
+export function parseAiDualViews(raw: string): DualAiViewSections {
+  const allSections = parseAiSections(raw);
+  const standard: AiSection[] = [];
+  const speed: AiSection[] = [];
+
+  for (const sec of allSections) {
+    if (sec.type === "speed") {
+      speed.push(sec);
+    } else {
+      standard.push(sec);
+    }
+  }
+
+  // 兜底保障：若历史缓存的解析缺少秒杀模块，给予友好提示卡片
+  if (speed.length === 0) {
+    speed.push({
+      type: "speed",
+      title: "30秒极速秒杀",
+      icon: "fire-o",
+      html: `<div class="ai-speed-empty-tip">本题尚未生成专项秒杀技巧，点击右上角【重新生成】即可一键获取 30 秒极速破题思路。</div>`,
+    });
+  }
+
+  return { standard, speed };
 }

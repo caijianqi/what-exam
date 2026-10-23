@@ -30,12 +30,20 @@ const resultShow = ref(false);
 const showAnalysis = ref(false);
 const faved = ref(false);
 
-// AI 解析相关状态
-const analysisTab = ref<"original" | "ai">("original");
+// AI 解析相关状态（教研精析与 30 秒秒杀独立请求与缓存）
+const analysisTab = ref<"original" | "ai" | "speed">("original");
+
+// 教研精析 (standard)
 const currentAiExplanation = ref<CachedAiExplanation | null>(null);
 const aiLoading = ref(false);
 const aiError = ref("");
 let aiAbortCtrl: AbortController | null = null;
+
+// 30秒秒杀 (speed)
+const currentSpeedExplanation = ref<CachedAiExplanation | null>(null);
+const speedLoading = ref(false);
+const speedError = ref("");
+let speedAbortCtrl: AbortController | null = null;
 
 const q = computed(() => ps.current);
 const judged = computed(
@@ -163,22 +171,7 @@ function submitExam() {
   updateTimer();
 }
 
-// 加载当前题目的 AI 解析缓存
-async function loadAiCache() {
-  cancelAiRequest();
-  aiError.value = "";
-  if (!q.value) {
-    currentAiExplanation.value = null;
-    return;
-  }
-  try {
-    currentAiExplanation.value = await getAiExplanation(q.value.id);
-  } catch {
-    currentAiExplanation.value = null;
-  }
-}
-
-function cancelAiRequest() {
+function cancelStandardRequest() {
   if (aiAbortCtrl) {
     aiAbortCtrl.abort();
     aiAbortCtrl = null;
@@ -186,7 +179,46 @@ function cancelAiRequest() {
   aiLoading.value = false;
 }
 
-async function triggerAiExplanation() {
+function cancelSpeedRequest() {
+  if (speedAbortCtrl) {
+    speedAbortCtrl.abort();
+    speedAbortCtrl = null;
+  }
+  speedLoading.value = false;
+}
+
+function cancelAllAiRequests() {
+  cancelStandardRequest();
+  cancelSpeedRequest();
+}
+
+// 加载当前题目的 AI 解析缓存（分别读取标准解析与秒杀解析）
+async function loadAiCache() {
+  cancelAllAiRequests();
+  aiError.value = "";
+  speedError.value = "";
+  if (!q.value) {
+    currentAiExplanation.value = null;
+    currentSpeedExplanation.value = null;
+    return;
+  }
+  const qid = q.value.id;
+  try {
+    const [std, spd] = await Promise.all([
+      getAiExplanation(qid, "standard"),
+      getAiExplanation(qid, "speed"),
+    ]);
+    if (q.value?.id === qid) {
+      currentAiExplanation.value = std;
+      currentSpeedExplanation.value = spd;
+    }
+  } catch {
+    currentAiExplanation.value = null;
+    currentSpeedExplanation.value = null;
+  }
+}
+
+async function triggerStandardExplanation() {
   if (!q.value) return;
   if (!settings.aiApiKey.trim() || !settings.aiModel.trim()) {
     showToast("请先在设置中配置 API Key 并选择模型");
@@ -194,7 +226,7 @@ async function triggerAiExplanation() {
     return;
   }
 
-  cancelAiRequest();
+  cancelStandardRequest();
   aiAbortCtrl = new AbortController();
   aiLoading.value = true;
   aiError.value = "";
@@ -215,10 +247,11 @@ async function triggerAiExplanation() {
       question: q.value,
       materialText: matText,
       chosen: ps.currentAnswer?.chosen ?? null,
+      type: "standard",
       signal: aiAbortCtrl.signal,
     });
 
-    await saveAiExplanation(q.value.id, settings.aiModel, content);
+    await saveAiExplanation(q.value.id, settings.aiModel, content, "standard");
     currentAiExplanation.value = {
       question_id: q.value.id,
       model: settings.aiModel,
@@ -237,11 +270,73 @@ async function triggerAiExplanation() {
   }
 }
 
-async function copyAiText() {
+async function triggerSpeedExplanation() {
+  if (!q.value) return;
+  if (!settings.aiApiKey.trim() || !settings.aiModel.trim()) {
+    showToast("请先在设置中配置 API Key 并选择模型");
+    router.push("/settings");
+    return;
+  }
+
+  cancelSpeedRequest();
+  speedAbortCtrl = new AbortController();
+  speedLoading.value = true;
+  speedError.value = "";
+
+  try {
+    let matText = "";
+    if (ps.currentMaterial) {
+      matText = ps.currentMaterial.content
+        .filter((b) => b.t === "text")
+        .map((b) => b.v)
+        .join("\n");
+    }
+
+    const content = await generateAiExplanation({
+      baseUrl: settings.aiBaseUrl,
+      apiKey: settings.aiApiKey,
+      model: settings.aiModel,
+      question: q.value,
+      materialText: matText,
+      chosen: ps.currentAnswer?.chosen ?? null,
+      type: "speed",
+      signal: speedAbortCtrl.signal,
+    });
+
+    await saveAiExplanation(q.value.id, settings.aiModel, content, "speed");
+    currentSpeedExplanation.value = {
+      question_id: q.value.id,
+      model: settings.aiModel,
+      content,
+    };
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    speedError.value = msg;
+    showToast({ message: "生成失败：" + msg, duration: 3000 });
+  } finally {
+    speedLoading.value = false;
+    speedAbortCtrl = null;
+  }
+}
+
+async function copyStandardText() {
   if (!currentAiExplanation.value?.content) return;
   try {
     await navigator.clipboard.writeText(currentAiExplanation.value.content);
-    showToast("AI 解析已复制");
+    showToast("AI 教研解析已复制");
+  } catch {
+    showToast("复制失败");
+  }
+}
+
+async function copySpeedText() {
+  if (!currentSpeedExplanation.value?.content) return;
+  try {
+    await navigator.clipboard.writeText(currentSpeedExplanation.value.content);
+    showToast("30秒秒杀解析已复制");
   } catch {
     showToast("复制失败");
   }
@@ -309,7 +404,7 @@ onUnmounted(() => {
     clearInterval(timerHandle);
     timerHandle = null;
   }
-  cancelAiRequest();
+  cancelAllAiRequests();
 });
 </script>
 
@@ -415,7 +510,7 @@ onUnmounted(() => {
               </div>
             </van-tab>
 
-            <van-tab title="AI解析" name="ai">
+            <van-tab title="AI教研精析" name="ai">
               <div class="tab-content-box ai-tab-box">
                 <!-- 未配置模型 -->
                 <div v-if="!settings.aiModel || !settings.aiApiKey" class="ai-box ai-empty-box">
@@ -431,7 +526,7 @@ onUnmounted(() => {
                   <van-loading size="22px" vertical color="var(--brand-a)">
                     AI 正在深入剖析本题（模型：{{ settings.aiModel }}）...
                   </van-loading>
-                  <van-button size="mini" plain style="margin-top: 10px" @click="cancelAiRequest">
+                  <van-button size="mini" plain style="margin-top: 10px" @click="cancelStandardRequest">
                     取消生成
                   </van-button>
                 </div>
@@ -439,7 +534,7 @@ onUnmounted(() => {
                 <!-- 生成失败 -->
                 <div v-else-if="aiError" class="ai-box ai-error-box">
                   <div class="ai-error-msg">生成解析失败：{{ aiError }}</div>
-                  <van-button size="small" plain type="danger" @click="triggerAiExplanation">
+                  <van-button size="small" plain type="danger" @click="triggerStandardExplanation">
                     重试
                   </van-button>
                 </div>
@@ -447,10 +542,11 @@ onUnmounted(() => {
                 <!-- 已有 AI 解析 -->
                 <AiAnalysisViewer
                   v-else-if="currentAiExplanation"
+                  view-mode="standard"
                   :content="currentAiExplanation.content"
                   :model="currentAiExplanation.model"
-                  @copy="copyAiText"
-                  @regenerate="triggerAiExplanation"
+                  @copy="copyStandardText"
+                  @regenerate="triggerStandardExplanation"
                 />
 
                 <!-- 未生成（手动触发初始态） -->
@@ -464,9 +560,67 @@ onUnmounted(() => {
                     size="small"
                     icon="bulb-o"
                     class="ai-trigger-btn"
-                    @click="triggerAiExplanation"
+                    @click="triggerStandardExplanation"
                   >
                     生成 AI 解析
+                  </van-button>
+                </div>
+              </div>
+            </van-tab>
+
+            <van-tab title="⚡ 30秒秒杀" name="speed">
+              <div class="tab-content-box ai-tab-box">
+                <!-- 未配置模型 -->
+                <div v-if="!settings.aiModel || !settings.aiApiKey" class="ai-box ai-empty-box">
+                  <div class="ai-empty-title">尚未配置 AI 模型或 API Key</div>
+                  <div class="ai-empty-desc">前往设置页面配置 MiniMax API Key 并拉取选定模型后即可使用</div>
+                  <van-button size="small" type="primary" plain @click="router.push('/settings')">
+                    前往配置
+                  </van-button>
+                </div>
+
+                <!-- 生成中 -->
+                <div v-else-if="speedLoading" class="ai-box ai-loading-box">
+                  <van-loading size="22px" vertical color="#f59e0b">
+                    正在提炼 30 秒极速秒杀绝技...
+                  </van-loading>
+                  <van-button size="mini" plain style="margin-top: 10px" @click="cancelSpeedRequest">
+                    取消生成
+                  </van-button>
+                </div>
+
+                <!-- 生成失败 -->
+                <div v-else-if="speedError" class="ai-box ai-error-box">
+                  <div class="ai-error-msg">生成秒杀失败：{{ speedError }}</div>
+                  <van-button size="small" plain type="danger" @click="triggerSpeedExplanation">
+                    重试
+                  </van-button>
+                </div>
+
+                <!-- 已有 AI 解析 -->
+                <AiAnalysisViewer
+                  v-else-if="currentSpeedExplanation"
+                  view-mode="speed"
+                  :content="currentSpeedExplanation.content"
+                  :model="currentSpeedExplanation.model"
+                  @copy="copySpeedText"
+                  @regenerate="triggerSpeedExplanation"
+                />
+
+                <!-- 未生成（手动触发初始态） -->
+                <div v-else class="ai-box ai-init-box speed-init-box">
+                  <div class="ai-init-tip">
+                    考场实战极速破局：<span class="ai-model-name speed-name">30秒秒杀绝技</span>
+                  </div>
+                  <div class="ai-init-sub">彻底跳过繁琐演算，直击非常规破局技巧与命题漏洞</div>
+                  <van-button
+                    type="warning"
+                    size="small"
+                    icon="fire-o"
+                    class="ai-trigger-btn speed-btn"
+                    @click="triggerSpeedExplanation"
+                  >
+                    ⚡ 生成 30秒秒杀绝技
                   </van-button>
                 </div>
               </div>
@@ -810,6 +964,15 @@ onUnmounted(() => {
 .ai-model-name {
   font-weight: 600;
   color: var(--brand-a);
+}
+.speed-name {
+  color: #d97706;
+}
+.speed-btn {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  border: none;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
+  font-weight: 700;
 }
 .ai-init-sub {
   font-size: 11px;
